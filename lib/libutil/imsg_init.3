@@ -224,7 +224,10 @@ forwards a just received
 .Fa msg
 unaltered on
 .Fa imsgbuf .
-Any attached file descriptor is closed.
+File descriptors are not forwarded by this function.
+It is possible to call
+.Fn imsg_forward
+more than once per message.
 .Pp
 .Fn imsg_flush
 calls
@@ -280,6 +283,8 @@ returns 0.
 .Fn imsg_get_fd
 returns the file descriptor and passes the responsibility to track the
 descriptor back to the program.
+Unclaimed file descriptors are closed by
+.Fn imsg_free .
 .Pp
 .Fn imsg_get_data
 and
