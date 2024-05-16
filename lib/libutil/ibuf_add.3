@@ -47,6 +47,7 @@
 .Nm ibuf_get_n32 ,
 .Nm ibuf_get_n64 ,
 .Nm ibuf_get_n8 ,
+.Nm ibuf_get_string ,
 .Nm ibuf_left ,
 .Nm ibuf_open ,
 .Nm ibuf_reserve ,
@@ -128,6 +129,8 @@
 .Fn ibuf_get_n64 "struct ibuf *buf" "uint64_t *value"
 .Ft int
 .Fn ibuf_get_n8 "struct ibuf *buf" "uint8_t *value"
+.Ft "char *"
+.Fn ibuf_get_string "struct ibuf *buf" "size_t len"
 .Ft size_t
 .Fn ibuf_left "const struct ibuf *buf"
 .Ft "struct ibuf *"
@@ -354,6 +357,21 @@ from
 .Fa buf
 converting the value from network to host byte order.
 0 is returned on success and \-1 on failure.
+.Pp
+.Fn ibuf_get_string
+consumes
+.Fa len
+bytes from the buffer
+.Fa buf
+and returns a newly allocated string of up to
+.Fa len
+charachters.
+On success
+.Fn ibuf_get_string
+returns a newly allocated string; it should be passed to
+.Xr free 3
+to release the allocated storage when it is no longer needed.
+On error NULL is returned.
 .Pp
 The
 .Fn ibuf_open
