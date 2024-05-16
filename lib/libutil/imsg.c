@@ -324,11 +324,6 @@ imsg_forward(struct imsgbuf *imsgbuf, struct imsg *msg)
 	struct ibuf	*wbuf;
 	size_t		 len = 0;
 
-	if (msg->fd != -1) {
-		close(msg->fd);
-		msg->fd = -1;
-	}
-
 	if (msg->buf != NULL) {
 		ibuf_rewind(msg->buf);
 		len = ibuf_size(msg->buf);
