@@ -119,6 +119,7 @@ int		 ibuf_get_n64(struct ibuf *, uint64_t *);
 int		 ibuf_get_h16(struct ibuf *, uint16_t *);
 int		 ibuf_get_h32(struct ibuf *, uint32_t *);
 int		 ibuf_get_h64(struct ibuf *, uint64_t *);
+char		*ibuf_get_string(struct ibuf *, size_t);
 int		 ibuf_skip(struct ibuf *, size_t);
 void		 ibuf_free(struct ibuf *);
 int		 ibuf_fd_avail(struct ibuf *);

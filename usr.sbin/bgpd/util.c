@@ -32,22 +32,6 @@
 #include "rde.h"
 #include "log.h"
 
-char *
-ibuf_get_string(struct ibuf *buf, size_t len)
-{
-	char *str;
-
-	if (ibuf_size(buf) < len) {
-		errno = EBADMSG;
-		return (NULL);
-	}
-	str = strndup(ibuf_data(buf), len);
-	if (str == NULL)
-		return (NULL);
-	ibuf_skip(buf, len);
-	return (str);
-}
-
 const char *
 log_addr(const struct bgpd_addr *addr)
 {
