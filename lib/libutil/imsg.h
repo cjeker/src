@@ -71,7 +71,6 @@ struct imsg_hdr {
 
 struct imsg {
 	struct imsg_hdr	 hdr;
-	int		 fd;
 	void		*data;
 	struct ibuf	*buf;
 };
