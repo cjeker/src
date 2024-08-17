@@ -185,10 +185,8 @@ main(int argc, char *argv[])
 		    : IMSG_RADIUSD_MODULE_IPCP_DISCONNECT, 0, 0, -1, iov, niov);
 		break;
 	}
-	while (ibuf.w.queued) {
-		if (msgbuf_write(&ibuf.w) <= 0 && errno != EAGAIN)
-			err(1, "ibuf_ctl: msgbuf_write error");
-	}
+	if (imsg_flush(&ibuf) == -1)
+		err(1, "ibuf_ctl: imsg_flush error");
 	while (!done) {
 		if (((n = imsg_read(&ibuf)) == -1 && errno != EAGAIN) || n == 0)
 			break;

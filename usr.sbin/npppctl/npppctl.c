@@ -509,9 +509,8 @@ imsg_wait_command_completion(void)
 {
 	int  n;
 
-	while (ctl_ibuf.w.queued)
-		if (msgbuf_write(&ctl_ibuf.w) <= 0 && errno != EAGAIN)
-			return (-1);
+	if (imsg_flush(&ctl_ibuf) == -1)
+		return (-1);
 	do {
 		if ((n = imsg_get(&ctl_ibuf, &ctl_imsg)) == -1)
 			return (-1);
