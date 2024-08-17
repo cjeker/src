@@ -418,9 +418,8 @@ main(int argc, char *argv[])
 	output->head(res);
 
  again:
-	while (imsgbuf->w.queued)
-		if (msgbuf_write(&imsgbuf->w) <= 0)
-			err(1, "write error");
+	if (imsg_flush(imsgbuf) == -1)
+		err(1, "write error");
 
 	while (!done) {
 		while (!done) {
@@ -1384,10 +1383,8 @@ network_mrt_dump(struct mrt_rib *mr, struct mrt_peer *mp, void *arg)
 			    mre->attrs[j].attr, mre->attrs[j].attr_len);
 		imsg_compose(imsgbuf, IMSG_NETWORK_DONE, 0, 0, -1, NULL, 0);
 
-		while (imsgbuf->w.queued) {
-			if (msgbuf_write(&imsgbuf->w) <= 0 && errno != EAGAIN)
-				err(1, "write error");
-		}
+		if (imsg_flush(imsgbuf) == -1)
+			err(1, "write error");
 	}
 }
 

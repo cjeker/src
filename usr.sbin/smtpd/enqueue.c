@@ -784,9 +784,8 @@ open_connection(void)
 
 	imsg_compose(ibuf, IMSG_CTL_SMTP_SESSION, IMSG_VERSION, 0, -1, NULL, 0);
 
-	while (ibuf->w.queued)
-		if (msgbuf_write(&ibuf->w) <= 0 && errno != EAGAIN)
-			err(1, "write error");
+	if (imsg_flush(ibuf) == -1)
+		err(1, "write error");
 
 	while (1) {
 		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)

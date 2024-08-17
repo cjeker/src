@@ -694,9 +694,8 @@ ctl_main(int argc, char *argv[])
 		break; /* NOTREACHED */
 	}
 
-	while (ibuf_ctl->w.queued)
-		if (msgbuf_write(&ibuf_ctl->w) <= 0 && errno != EAGAIN)
-			err(1, "ibuf_ctl: msgbuf_write error");
+	if (imsg_flush(ibuf_ctl) == -1)
+		err(1, "ibuf_ctl: imsg_flush error");
 
 	done = 0;
 	while (!done) {
