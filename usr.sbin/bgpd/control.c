@@ -249,7 +249,7 @@ control_dispatch_msg(struct pollfd *pfd, struct peer_head *peers)
 	}
 
 	if (pfd->revents & POLLOUT) {
-		if (msgbuf_write(&c->imsgbuf.w) <= 0 && errno != EAGAIN)
+		if (imsg_write(&c->imsgbuf) <= 0 && errno != EAGAIN)
 			return control_close(c);
 		if (c->throttled && c->imsgbuf.w.queued < CTL_MSG_LOW_MARK) {
 			if (imsg_ctl_rde_msg(IMSG_XON, 0, c->imsgbuf.pid) != -1)

@@ -333,7 +333,7 @@ main(int argc, char *argv[])
 		}
 
 		if (nfds > 0 && (pfd[PFD_PIPE].revents & POLLOUT))
-			if (msgbuf_write(&ibuf->w) <= 0 && errno != EAGAIN) {
+			if (imsg_write(ibuf) <= 0 && errno != EAGAIN) {
 				log_warn("pipe write error (to child)");
 				quit = 1;
 			}

@@ -126,6 +126,12 @@ fail:
 	return (n);
 }
 
+int
+imsg_write(struct imsgbuf *imsgbuf)
+{
+	return msgbuf_write(&imsgbuf->w);
+}
+
 ssize_t
 imsg_get(struct imsgbuf *imsgbuf, struct imsg *imsg)
 {
@@ -423,7 +429,7 @@ int
 imsg_flush(struct imsgbuf *imsgbuf)
 {
 	while (imsgbuf->w.queued)
-		if (msgbuf_write(&imsgbuf->w) <= 0 && errno != EAGAIN)
+		if (imsg_write(imsgbuf) <= 0 && errno != EAGAIN)
 			return (-1);
 	return (0);
 }

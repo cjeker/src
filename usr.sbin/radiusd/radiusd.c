@@ -1330,13 +1330,13 @@ radiusd_module_on_imsg_io(int fd, short evmask, void *ctx)
 	}
 
 	while (module->writeready && module->ibuf.w.queued) {
-		ret = msgbuf_write(&module->ibuf.w);
+		ret = imsg_write(&module->ibuf);
 		if (ret > 0)
 			continue;
 		module->writeready = false;
 		if (ret == 0 && errno == EAGAIN)
 			break;
-		log_warn("Failed to write to module `%s': msgbuf_write()",
+		log_warn("Failed to write to module `%s': imsg_write()",
 		    module->name);
 		goto on_error;
 	}

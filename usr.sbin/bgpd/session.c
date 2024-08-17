@@ -539,7 +539,7 @@ session_main(int debug, int verbose)
 
 	/* close pipes */
 	if (ibuf_rde) {
-		msgbuf_write(&ibuf_rde->w);
+		imsg_write(ibuf_rde);
 		msgbuf_clear(&ibuf_rde->w);
 		close(ibuf_rde->fd);
 		free(ibuf_rde);
@@ -549,7 +549,7 @@ session_main(int debug, int verbose)
 		close(ibuf_rde_ctl->fd);
 		free(ibuf_rde_ctl);
 	}
-	msgbuf_write(&ibuf_main->w);
+	imsg_write(ibuf_main);
 	msgbuf_clear(&ibuf_main->w);
 	close(ibuf_main->fd);
 	free(ibuf_main);

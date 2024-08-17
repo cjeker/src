@@ -365,7 +365,7 @@ ntp_main(struct ntpd_conf *nconf, struct passwd *pw, int argc, char **argv)
 			}
 
 		if (nfds > 0 && (pfd[PFD_PIPE_MAIN].revents & POLLOUT))
-			if (msgbuf_write(&ibuf_main->w) <= 0 &&
+			if (imsg_write(ibuf_main) <= 0 &&
 			    errno != EAGAIN) {
 				log_warn("pipe write error (to parent)");
 				ntp_quit = 1;
@@ -380,7 +380,7 @@ ntp_main(struct ntpd_conf *nconf, struct passwd *pw, int argc, char **argv)
 		}
 
 		if (nfds > 0 && (pfd[PFD_PIPE_DNS].revents & POLLOUT))
-			if (msgbuf_write(&ibuf_dns->w) <= 0 &&
+			if (imsg_write(ibuf_dns) <= 0 &&
 			    errno != EAGAIN) {
 				log_warn("pipe write error (to dns engine)");
 				ntp_quit = 1;
@@ -462,10 +462,10 @@ ntp_main(struct ntpd_conf *nconf, struct passwd *pw, int argc, char **argv)
 		}
 	}
 
-	msgbuf_write(&ibuf_main->w);
+	imsg_write(ibuf_main);
 	msgbuf_clear(&ibuf_main->w);
 	free(ibuf_main);
-	msgbuf_write(&ibuf_dns->w);
+	imsg_write(ibuf_dns);
 	msgbuf_clear(&ibuf_dns->w);
 	free(ibuf_dns);
 
