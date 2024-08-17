@@ -472,11 +472,19 @@ routine transmits as many pending buffers as possible from
 .Fa msgbuf
 using
 .Xr writev 2 .
-It returns 1 if it succeeds, \-1 on error and 0 when no buffers were
-pending or an EOF condition on the socket is detected.
-Temporary resource shortages are returned with errno
-.Er EAGAIN
-and require the application to retry again in the future.
+It returns 0 if it succeeds, -1 on error and the global variable
+.Va errno
+is set to indicate the error.
+The errors
+.Er EINTR ,
+.Er EAGAIN ,
+and
+.Er ENOBUFS
+are treated specially.
+.Er EINTR
+will automatically retry the write operation while the other errors are
+ignored with a 0 return.
+The application will then retry the operation at a later stage.
 .Pp
 The
 .Fn msgbuf_init
@@ -503,11 +511,19 @@ routine calls
 .Xr sendmsg 2
 to transmit buffers queued in
 .Fa msgbuf .
-It returns 1 if it succeeds, \-1 on error, and 0 when the queue was empty
-or an EOF condition on the socket is detected.
-Temporary resource shortages are returned with errno
-.Er EAGAIN
-and require the application to retry again in the future.
+It returns 0 if it succeeds, -1 on error and the global variable
+.Va errno
+is set to indicate the error.
+The errors
+.Er EINTR ,
+.Er EAGAIN ,
+and
+.Er ENOBUFS
+are treated specially.
+.Er EINTR
+will automatically retry the write operation while the other errors are
+ignored with a 0 return.
+The application will then retry the operation at a later stage.
 .Sh SEE ALSO
 .Xr socketpair 2 ,
 .Xr imsg_init 3 ,

@@ -429,7 +429,7 @@ int
 imsg_flush(struct imsgbuf *imsgbuf)
 {
 	while (imsgbuf->w.queued)
-		if (imsg_write(imsgbuf) <= 0 && errno != EAGAIN)
+		if (imsg_write(imsgbuf) == -1)
 			return (-1);
 	return (0);
 }
