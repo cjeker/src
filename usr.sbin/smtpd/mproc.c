@@ -164,7 +164,7 @@ mproc_dispatch(int fd, short event, void *arg)
 	}
 
 	if (event & EV_WRITE) {
-		n = msgbuf_write(&p->imsgbuf.w);
+		n = imsg_write(&p->imsgbuf);
 		if (n == 0 || (n == -1 && errno != EAGAIN)) {
 			/* this pipe is dead, so remove the event handler */
 			log_debug("debug: %s -> %s: pipe closed",

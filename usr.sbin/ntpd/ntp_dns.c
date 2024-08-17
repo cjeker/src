@@ -117,7 +117,7 @@ ntp_dns(struct ntpd_conf *nconf, struct passwd *pw)
 			}
 
 		if (nfds > 0 && (pfd[0].revents & POLLOUT))
-			if (msgbuf_write(&ibuf_dns->w) <= 0 &&
+			if (imsg_write(ibuf_dns) <= 0 &&
 			    errno != EAGAIN) {
 				log_warn("pipe write error (to ntp engine)");
 				quit_dns = 1;

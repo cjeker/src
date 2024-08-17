@@ -505,8 +505,8 @@ vmm_dispatch_vm(int fd, short event, void *arg)
 	}
 
 	if (event & EV_WRITE) {
-		if ((n = msgbuf_write(&ibuf->w)) == -1 && errno != EAGAIN)
-			fatal("%s: msgbuf_write fd %d", __func__, ibuf->fd);
+		if ((n = imsg_write(ibuf)) == -1 && errno != EAGAIN)
+			fatal("%s: imsg_write fd %d", __func__, ibuf->fd);
 		if (n == 0) {
 			/* This pipe is dead, so remove the event handler */
 			event_del(&iev->ev);

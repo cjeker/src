@@ -296,12 +296,12 @@ proc_dispatch(int fd, short event, void *arg)
 	}
 
 	if (event & EV_WRITE) {
-		n = msgbuf_write(&p->imsgbuf.w);
+		n = imsg_write(&p->imsgbuf);
 		switch (n) {
 		case -1:
 			if (errno == EAGAIN)
 				break;
-			log_warn("%s: msgbuf_write", __func__);
+			log_warn("%s: imsg_write", __func__);
 			proc_callback(p, NULL);
 			return;
 		case 0:

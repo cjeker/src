@@ -152,8 +152,8 @@ dns_dispatch_imsg(int fd, short events, void *p)
 			shut = 1;
 	}
 	if (events & EV_WRITE) {
-		if ((n = msgbuf_write(&ibuf->w)) == -1 && errno != EAGAIN)
-			fatal("msgbuf_write");
+		if ((n = imsg_write(ibuf)) == -1 && errno != EAGAIN)
+			fatal("imsg_write");
 		if (n == 0)
 			shut = 1;
 		goto done;

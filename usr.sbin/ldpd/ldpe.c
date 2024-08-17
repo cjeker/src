@@ -159,10 +159,10 @@ ldpe_shutdown(void)
 	struct adj		*adj;
 
 	/* close pipes */
-	msgbuf_write(&iev_lde->ibuf.w);
+	imsg_write(&iev_lde->ibuf);
 	msgbuf_clear(&iev_lde->ibuf.w);
 	close(iev_lde->ibuf.fd);
-	msgbuf_write(&iev_main->ibuf.w);
+	imsg_write(&iev_main->ibuf);
 	msgbuf_clear(&iev_main->ibuf.w);
 	close(iev_main->ibuf.fd);
 
@@ -237,8 +237,8 @@ ldpe_dispatch_main(int fd, short event, void *bula)
 			shut = 1;
 	}
 	if (event & EV_WRITE) {
-		if ((n = msgbuf_write(&ibuf->w)) == -1 && errno != EAGAIN)
-			fatal("ldpe_dispatch_main: msgbuf_write");
+		if ((n = imsg_write(ibuf)) == -1 && errno != EAGAIN)
+			fatal("ldpe_dispatch_main: imsg_write");
 		if (n == 0)
 			shut = 1;
 	}
@@ -501,8 +501,8 @@ ldpe_dispatch_lde(int fd, short event, void *bula)
 			shut = 1;
 	}
 	if (event & EV_WRITE) {
-		if ((n = msgbuf_write(&ibuf->w)) == -1 && errno != EAGAIN)
-			fatal("ldpe_dispatch_lde: msgbuf_write");
+		if ((n = imsg_write(ibuf)) == -1 && errno != EAGAIN)
+			fatal("ldpe_dispatch_lde: imsg_write");
 		if (n == 0)
 			shut = 1;
 	}
