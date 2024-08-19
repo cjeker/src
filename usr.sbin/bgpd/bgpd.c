@@ -1273,7 +1273,7 @@ handle_pollfd(struct pollfd *pfd, struct imsgbuf *i)
 		return (0);
 
 	if (pfd->revents & POLLOUT)
-		if (imsg_write(i) <= 0 && errno != EAGAIN) {
+		if (imsg_write(i) == -1) {
 			log_warn("imsg write error");
 			close(i->fd);
 			i->fd = -1;

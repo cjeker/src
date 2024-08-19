@@ -627,13 +627,13 @@ proc_dispatch(int fd, short event, void *arg)
 	}
 
 	if (event & EV_WRITE) {
-		if ((n = imsg_write(ibuf)) == -1 && errno != EAGAIN)
-			fatal("%s: imsg_write", __func__);
-		if (n == 0) {
-			/* this pipe is dead, so remove the event handler */
-			event_del(&iev->ev);
-			event_loopexit(NULL);
-			return;
+		if (imsg_write(ibuf) == -1) {
+			if (errno == EPIPE) {	/* Connection closed. */
+				event_del(&iev->ev);
+				event_loopexit(NULL);
+				return;
+			} else
+				fatal("imsg_write");
 		}
 	}
 

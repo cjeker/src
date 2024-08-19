@@ -354,10 +354,11 @@ vm_dispatch_vmm(int fd, short event, void *arg)
 	}
 
 	if (event & EV_WRITE) {
-		if ((n = imsg_write(ibuf)) == -1 && errno != EAGAIN)
+		if (imsg_write(ibuf) == -1) {
+			if (errno == EPIPE)
+				_exit(0);
 			fatal("%s: imsg_write fd %d", __func__, ibuf->fd);
-		if (n == 0)
-			_exit(0);
+		}
 	}
 
 	for (;;) {

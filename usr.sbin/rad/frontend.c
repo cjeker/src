@@ -325,10 +325,12 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			shut = 1;
 	}
 	if (event & EV_WRITE) {
-		if ((n = imsg_write(ibuf)) == -1 && errno != EAGAIN)
-			fatal("imsg_write");
-		if (n == 0)	/* Connection closed. */
-			shut = 1;
+		if (imsg_write(ibuf) == -1) {
+			if (errno == EPIPE)	/* connection closed */
+				shut = 1;
+			else
+				fatal("imsg_write");
+		}
 	}
 
 	for (;;) {
@@ -538,10 +540,12 @@ frontend_dispatch_engine(int fd, short event, void *bula)
 			shut = 1;
 	}
 	if (event & EV_WRITE) {
-		if ((n = imsg_write(ibuf)) == -1 && errno != EAGAIN)
-			fatal("imsg_write");
-		if (n == 0)	/* Connection closed. */
-			shut = 1;
+		if (imsg_write(ibuf) == -1) {
+			if (errno == EPIPE)	/* connection closed */
+				shut = 1;
+			else
+				fatal("imsg_write");
+		}
 	}
 
 	for (;;) {

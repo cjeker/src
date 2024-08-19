@@ -105,7 +105,7 @@ proc_event_cb(__unused int fd, short events, void *arg)
 	}
 
 	if (events & EV_WRITE) {
-		if (imsg_write(&peer->ibuf) <= 0 && errno != EAGAIN) {
+		if (imsg_write(&peer->ibuf) == -1) {
 			peer->dispatchcb(NULL, peer->arg);
 			return;
 		}

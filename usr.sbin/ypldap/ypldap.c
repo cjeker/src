@@ -367,11 +367,12 @@ main_dispatch_client(int fd, short events, void *p)
 			shut = 1;
 	}
 	if (events & EV_WRITE) {
-		if ((n = imsg_write(ibuf)) == -1 && errno != EAGAIN)
-			fatal("imsg_write");
-		if (n == 0)
-			shut = 1;
-		goto done;
+		if (imsg_write(ibuf) == -1) {
+			if (errno == EPIPE)	/* connection closed */
+				shut = 1;
+			else
+				fatal("imsg_write");
+		}
 	}
 
 	for (;;) {
@@ -451,7 +452,6 @@ main_dispatch_client(int fd, short events, void *p)
 		imsg_free(&imsg);
 	}
 
-done:
 	if (!shut)
 		imsg_event_add(iev);
 	else {
