@@ -1110,9 +1110,7 @@ fail:
 void
 mrt_write(struct mrt *mrt)
 {
-	int	r;
-
-	if ((r = ibuf_write(&mrt->wbuf)) == -1 && errno != EAGAIN) {
+	if (ibuf_write(&mrt->wbuf) == -1) {
 		log_warn("mrt dump aborted, mrt_write");
 		mrt_clean(mrt);
 		mrt_done(mrt);
