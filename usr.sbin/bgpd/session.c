@@ -1935,10 +1935,10 @@ session_dispatch_msg(struct pollfd *pfd, struct peer *p)
 	}
 
 	if (pfd->revents & POLLOUT && p->wbuf.queued) {
-		if ((error = ibuf_write(&p->wbuf)) <= 0 && errno != EAGAIN) {
-			if (error == 0)
+		if (ibuf_write(&p->wbuf) == -1) {
+			if (errno == EPIPE)
 				log_peer_warnx(&p->conf, "Connection closed");
-			else if (error == -1)
+			else
 				log_peer_warn(&p->conf, "write error");
 			bgp_fsm(p, EVNT_CON_FATAL);
 			return (1);
