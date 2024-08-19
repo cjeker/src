@@ -1306,16 +1306,13 @@ main(int argc, char *argv[])
 			if (pfd[i].revents & POLLHUP)
 				hangup = 1;
 			if (pfd[i].revents & POLLOUT) {
-				switch (msgbuf_write(queues[i])) {
-				case 0:
-					warnx("write[%d]: "
-					    "connection closed", i);
+				if (msgbuf_write(queues[i]) == -1) {
+					if (errno == EPIPE)
+						warnx("write[%d]: "
+						    "connection closed", i);
+					else
+						warn("write[%d]", i);
 					hangup = 1;
-					break;
-				case -1:
-					warn("write[%d]", i);
-					hangup = 1;
-					break;
 				}
 			}
 		}

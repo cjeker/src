@@ -598,8 +598,8 @@ session_write(int fd, short event, void *arg)
 	if (!(event & EV_WRITE))
 		return;
 
-	if (msgbuf_write(&tcp->wbuf.wbuf) <= 0)
-		if (errno != EAGAIN && nbr)
+	if (msgbuf_write(&tcp->wbuf.wbuf) == -1)
+		if (nbr)
 			nbr_fsm(nbr, NBR_EVT_CLOSE_SESSION);
 
 	if (nbr == NULL && !tcp->wbuf.wbuf.queued) {
