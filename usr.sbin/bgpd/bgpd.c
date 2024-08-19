@@ -272,9 +272,9 @@ main(int argc, char *argv[])
 	    (ibuf_rde = malloc(sizeof(struct imsgbuf))) == NULL ||
 	    (ibuf_rtr = malloc(sizeof(struct imsgbuf))) == NULL)
 		fatal(NULL);
-	imsg_init(ibuf_se, pipe_m2s[0]);
-	imsg_init(ibuf_rde, pipe_m2r[0]);
-	imsg_init(ibuf_rtr, pipe_m2roa[0]);
+	imsgbuf_init(ibuf_se, pipe_m2s[0]);
+	imsgbuf_init(ibuf_rde, pipe_m2r[0]);
+	imsgbuf_init(ibuf_rtr, pipe_m2roa[0]);
 	mrt_init(ibuf_rde, ibuf_se);
 	if (kr_init(&rfd, conf->fib_priority) == -1)
 		quit = 1;
@@ -1261,7 +1261,7 @@ handle_pollfd(struct pollfd *pfd, struct imsgbuf *i)
 		return (0);
 
 	if (pfd->revents & POLLOUT)
-		if (imsg_write(i) == -1) {
+		if (imsgbuf_write(i) == -1) {
 			log_warn("imsg write error");
 			close(i->fd);
 			i->fd = -1;
@@ -1269,7 +1269,7 @@ handle_pollfd(struct pollfd *pfd, struct imsgbuf *i)
 		}
 
 	if (pfd->revents & POLLIN) {
-		if ((n = imsg_read(i)) == -1 && errno != EAGAIN) {
+		if ((n = imsgbuf_read(i)) == -1 && errno != EAGAIN) {
 			log_warn("imsg read error");
 			close(i->fd);
 			i->fd = -1;

@@ -32,8 +32,8 @@ scheduler_proc_call(void)
 {
 	ssize_t	n;
 
-	if (imsg_flush(&ibuf) == -1) {
-		log_warn("warn: scheduler-proc: imsg_flush");
+	if (imsgbuf_flush(&ibuf) == -1) {
+		log_warn("warn: scheduler-proc: imsgbuf_flush");
 		fatalx("scheduler-proc: exiting");
 	}
 
@@ -53,8 +53,8 @@ scheduler_proc_call(void)
 			return;
 		}
 
-		if ((n = imsg_read(&ibuf)) == -1 && errno != EAGAIN) {
-			log_warn("warn: scheduler-proc: imsg_read");
+		if ((n = imsgbuf_read(&ibuf)) == -1 && errno != EAGAIN) {
+			log_warn("warn: scheduler-proc: imsgbuf_read");
 			break;
 		}
 
@@ -104,7 +104,7 @@ scheduler_proc_init(const char *conf)
 	if (fd == -1)
 		fatalx("scheduler-proc: exiting");
 
-	imsg_init(&ibuf, fd);
+	imsgbuf_init(&ibuf, fd);
 
 	version = PROC_SCHEDULER_API_VERSION;
 	imsg_compose(&ibuf, PROC_SCHEDULER_INIT, 0, 0, -1,

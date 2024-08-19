@@ -361,17 +361,17 @@ main_dispatch_client(int fd, short events, void *p)
 		fatalx("unknown event");
 
 	if (events & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
-			fatal("imsg_read error");
+		if ((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN)
+			fatal("imsgbuf_read error");
 		if (n == 0)
 			shut = 1;
 	}
 	if (events & EV_WRITE) {
-		if (imsg_write(ibuf) == -1) {
+		if (imsgbuf_write(ibuf) == -1) {
 			if (errno == EPIPE)	/* connection closed */
 				shut = 1;
 			else
-				fatal("imsg_write");
+				fatal("imsgbuf_write");
 		}
 	}
 
@@ -589,7 +589,7 @@ main(int argc, char *argv[])
 	close(pipe_main2client[1]);
 	if ((env.sc_iev = calloc(1, sizeof(*env.sc_iev))) == NULL)
 		fatal(NULL);
-	imsg_init(&env.sc_iev->ibuf, pipe_main2client[0]);
+	imsgbuf_init(&env.sc_iev->ibuf, pipe_main2client[0]);
 	env.sc_iev->handler = main_dispatch_client;
 
 	env.sc_iev->events = EV_READ;
@@ -630,7 +630,7 @@ void
 imsg_event_add(struct imsgev *iev)
 {
 	if (iev->handler == NULL) {
-		imsg_flush(&iev->ibuf);
+		imsgbuf_flush(&iev->ibuf);
 		return;
 	}
 
