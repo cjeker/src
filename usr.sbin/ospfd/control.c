@@ -176,7 +176,7 @@ control_accept(int listenfd, short event, void *bula)
 		return;
 	}
 
-	imsg_init(&c->iev.ibuf, connfd);
+	imsgbuf_init(&c->iev.ibuf, connfd);
 	c->iev.handler = control_dispatch_imsg;
 	c->iev.events = EV_READ;
 	event_set(&c->iev.ev, c->iev.ibuf.fd, c->iev.events,
@@ -252,14 +252,14 @@ control_dispatch_imsg(int fd, short event, void *bula)
 	}
 
 	if (event & EV_READ) {
-		if (((n = imsg_read(&c->iev.ibuf)) == -1 && errno != EAGAIN) ||
-		    n == 0) {
+		if (((n = imsgbuf_read(&c->iev.ibuf)) == -1 &&
+		    errno != EAGAIN) || n == 0) {
 			control_close(fd);
 			return;
 		}
 	}
 	if (event & EV_WRITE) {
-		if (imsg_write(&c->iev.ibuf) == -1) {
+		if (imsgbuf_write(&c->iev.ibuf) == -1) {
 			control_close(fd);
 			return;
 		}

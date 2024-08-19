@@ -122,12 +122,12 @@ main(int argc, char *argv[])
 
 	if ((ibuf = malloc(sizeof(struct imsgbuf))) == NULL)
 		err(1, NULL);
-	imsg_init(ibuf, ctl_sock);
+	imsgbuf_init(ibuf, ctl_sock);
 
 	if (!lFlag) {
 		imsg_compose(ibuf, IMSG_CTL_SEND_REQUEST, 0, 0, -1,
 		    &if_index, sizeof(if_index));
-		if (imsg_flush(ibuf) == -1)
+		if (imsgbuf_flush(ibuf) == -1)
 			err(1, "write error");
 
 	}
@@ -136,11 +136,11 @@ main(int argc, char *argv[])
 		imsg_compose(ibuf, IMSG_CTL_SHOW_INTERFACE_INFO, 0, 0, -1,
 		    &if_index, sizeof(if_index));
 
-		if (imsg_flush(ibuf) == -1)
+		if (imsgbuf_flush(ibuf) == -1)
 			err(1, "write error");
 
-		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
-			errx(1, "imsg_read error");
+		if ((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN)
+			errx(1, "imsgbuf_read error");
 		if (n == 0)
 			errx(1, "pipe closed");
 

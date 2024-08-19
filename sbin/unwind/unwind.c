@@ -239,9 +239,9 @@ main(int argc, char *argv[])
 	if ((iev_frontend = malloc(sizeof(struct imsgev))) == NULL ||
 	    (iev_resolver = malloc(sizeof(struct imsgev))) == NULL)
 		fatal(NULL);
-	imsg_init(&iev_frontend->ibuf, pipe_main2frontend[0]);
+	imsgbuf_init(&iev_frontend->ibuf, pipe_main2frontend[0]);
 	iev_frontend->handler = main_dispatch_frontend;
-	imsg_init(&iev_resolver->ibuf, pipe_main2resolver[0]);
+	imsgbuf_init(&iev_resolver->ibuf, pipe_main2resolver[0]);
 	iev_resolver->handler = main_dispatch_resolver;
 
 	/* Setup event handlers for pipes. */
@@ -398,17 +398,17 @@ main_dispatch_frontend(int fd, short event, void *bula)
 	ibuf = &iev->ibuf;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
-			fatal("imsg_read error");
+		if ((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN)
+			fatal("imsgbuf_read error");
 		if (n == 0)	/* Connection closed. */
 			shut = 1;
 	}
 	if (event & EV_WRITE) {
-		if (imsg_write(ibuf) == -1) {
+		if (imsgbuf_write(ibuf) == -1) {
 			if (errno == EPIPE)	/* Connection closed. */
 				shut = 1;
 			else
-				fatal("imsg_write");
+				fatal("imsgbuf_write");
 		}
 	}
 
@@ -463,17 +463,17 @@ main_dispatch_resolver(int fd, short event, void *bula)
 	ibuf = &iev->ibuf;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
-			fatal("imsg_read error");
+		if ((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN)
+			fatal("imsgbuf_read error");
 		if (n == 0)	/* Connection closed. */
 			shut = 1;
 	}
 	if (event & EV_WRITE) {
-		if (imsg_write(ibuf) == -1) {
+		if (imsgbuf_write(ibuf) == -1) {
 			if (errno == EPIPE)	/* Connection closed. */
 				shut = 1;
 			else
-				fatal("imsg_write");
+				fatal("imsgbuf_write");
 		}
 	}
 

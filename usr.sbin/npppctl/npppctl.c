@@ -108,7 +108,7 @@ main(int argc, char *argv[])
 	if (connect(ctlsock, (struct sockaddr *)&sun, sizeof(sun)) == -1)
 		err(EXIT_FAILURE, "connect");
 
-	imsg_init(&ctl_ibuf, ctlsock);
+	imsgbuf_init(&ctl_ibuf, ctlsock);
 
 	switch (result->action) {
 	case SESSION_BRIEF:
@@ -509,14 +509,14 @@ imsg_wait_command_completion(void)
 {
 	int  n;
 
-	if (imsg_flush(&ctl_ibuf) == -1)
+	if (imsgbuf_flush(&ctl_ibuf) == -1)
 		return (-1);
 	do {
 		if ((n = imsg_get(&ctl_ibuf, &ctl_imsg)) == -1)
 			return (-1);
 		if (n != 0)
 			break;
-		if (((n = imsg_read(&ctl_ibuf)) == -1 && errno != EAGAIN) ||
+		if (((n = imsgbuf_read(&ctl_ibuf)) == -1 && errno != EAGAIN) ||
 		    n == 0)
 			return (-1);
 	} while (1);
