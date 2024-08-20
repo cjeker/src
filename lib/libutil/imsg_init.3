@@ -36,11 +36,12 @@
 .Nm imsg_get_len ,
 .Nm imsg_get_pid ,
 .Nm imsg_get_type ,
-.Nm imsgbuf_clear
+.Nm imsgbuf_clear ,
 .Nm imsgbuf_flush ,
 .Nm imsgbuf_init ,
+.Nm imsgbuf_queuelen ,
 .Nm imsgbuf_read ,
-.Nm imsgbuf_write ,
+.Nm imsgbuf_write
 .Nd IPC messaging functions
 .Sh SYNOPSIS
 .In sys/queue.h
@@ -84,6 +85,8 @@
 .Fn imsgbuf_flush "struct imsgbuf *imsgbuf"
 .Ft void
 .Fn imsgbuf_init "struct imsgbuf *imsgbuf" "int fd"
+.Ft uint32_t
+.Fn imsgbuf_queuelen "struct imsgbuf *imsgbuf"
 .Ft ssize_t
 .Fn imsgbuf_read "struct imsgbuf *imsgbuf"
 .Ft int
@@ -145,8 +148,8 @@ and
 are treated specially.
 .Er EINTR
 will automatically retry the write operation while the other errors are
-ignored with a 0 return. The caller will then retry the operation at a
-later stage.
+ignored with a 0 return.
+The caller will then retry the operation at a later stage.
 .Pp
 .Fn imsgbuf_flush
 calls
@@ -158,6 +161,10 @@ is set to indicate the error.
 .Fn imsgbuf_flush
 should not be called on non-blocking sockets since it will busy loop if the
 socket is not available.
+.Pp
+.Fn imsgbuf_queuelen
+returns the number of messages ready to be sent.
+This function returns 0 if no messages are pending for transmission.
 .Pp
 .Fn imsg_create ,
 .Fn imsg_add
