@@ -151,6 +151,12 @@ imsgbuf_clear(struct imsgbuf *imsgbuf)
 		close(fd);
 }
 
+uint32_t
+imsgbuf_queuelen(struct imsgbuf *imsgbuf)
+{
+	return msgbuf_queuelen(&imsgbuf->w);
+}
+
 ssize_t
 imsg_get(struct imsgbuf *imsgbuf, struct imsg *imsg)
 {
