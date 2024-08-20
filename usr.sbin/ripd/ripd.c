@@ -270,9 +270,9 @@ ripd_shutdown(void)
 	int		 status;
 
 	/* close pipes */
-	msgbuf_clear(&iev_ripe->ibuf.w);
+	imsgbuf_clear(&iev_ripe->ibuf);
 	close(iev_ripe->ibuf.fd);
-	msgbuf_clear(&iev_rde->ibuf.w);
+	imsgbuf_clear(&iev_rde->ibuf);
 	close(iev_rde->ibuf.fd);
 
 	while ((i = LIST_FIRST(&conf->iface_list)) != NULL) {

@@ -299,9 +299,9 @@ ospfd_shutdown(void)
 	int	status;
 
 	/* close pipes */
-	msgbuf_clear(&iev_ospfe->ibuf.w);
+	imsgbuf_clear(&iev_ospfe->ibuf);
 	close(iev_ospfe->ibuf.fd);
-	msgbuf_clear(&iev_rde->ibuf.w);
+	imsgbuf_clear(&iev_rde->ibuf);
 	close(iev_rde->ibuf.fd);
 
 	control_cleanup();

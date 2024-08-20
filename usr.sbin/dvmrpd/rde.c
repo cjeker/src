@@ -156,9 +156,9 @@ rde_shutdown(void)
 	struct iface	*iface;
 
 	/* close pipes */
-	msgbuf_clear(&iev_dvmrpe->ibuf.w);
+	imsgbuf_clear(&iev_dvmrpe->ibuf);
 	close(iev_dvmrpe->ibuf.fd);
-	msgbuf_clear(&iev_main->ibuf.w);
+	imsgbuf_clear(&iev_main->ibuf);
 	close(iev_main->ibuf.fd);
 
 	rt_clear();

@@ -220,9 +220,9 @@ rde_shutdown(void)
 	struct vertex	*v, *nv;
 
 	/* close pipes */
-	msgbuf_clear(&iev_ospfe->ibuf.w);
+	imsgbuf_clear(&iev_ospfe->ibuf);
 	close(iev_ospfe->ibuf.fd);
-	msgbuf_clear(&iev_main->ibuf.w);
+	imsgbuf_clear(&iev_main->ibuf);
 	close(iev_main->ibuf.fd);
 
 	stop_spf_timer(rdeconf);

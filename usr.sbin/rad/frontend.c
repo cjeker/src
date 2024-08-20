@@ -274,10 +274,10 @@ frontend_shutdown(void)
 {
 	/* Close pipes. */
 	imsgbuf_write(&iev_engine->ibuf);
-	msgbuf_clear(&iev_engine->ibuf.w);
+	imsgbuf_clear(&iev_engine->ibuf);
 	close(iev_engine->ibuf.fd);
 	imsgbuf_write(&iev_main->ibuf);
-	msgbuf_clear(&iev_main->ibuf.w);
+	imsgbuf_clear(&iev_main->ibuf);
 	close(iev_main->ibuf.fd);
 
 	config_clear(frontend_conf);

@@ -151,9 +151,9 @@ static __dead void
 lde_shutdown(void)
 {
 	/* close pipes */
-	msgbuf_clear(&iev_ldpe->ibuf.w);
+	imsgbuf_clear(&iev_ldpe->ibuf);
 	close(iev_ldpe->ibuf.fd);
-	msgbuf_clear(&iev_main->ibuf.w);
+	imsgbuf_clear(&iev_main->ibuf);
 	close(iev_main->ibuf.fd);
 
 	lde_gc_stop_timer();

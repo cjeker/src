@@ -284,9 +284,9 @@ eigrpd_shutdown(void)
 	int		 status;
 
 	/* close pipes */
-	msgbuf_clear(&iev_eigrpe->ibuf.w);
+	imsgbuf_clear(&iev_eigrpe->ibuf);
 	close(iev_eigrpe->ibuf.fd);
-	msgbuf_clear(&iev_rde->ibuf.w);
+	imsgbuf_clear(&iev_rde->ibuf);
 	close(iev_rde->ibuf.fd);
 
 	kr_shutdown();

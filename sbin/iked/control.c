@@ -231,7 +231,7 @@ control_close(int fd, struct control_sock *cs)
 		return;
 	}
 
-	msgbuf_clear(&c->iev.ibuf.w);
+	imsgbuf_clear(&c->iev.ibuf);
 	TAILQ_REMOVE(&ctl_conns, c, entry);
 
 	event_del(&c->iev.ev);

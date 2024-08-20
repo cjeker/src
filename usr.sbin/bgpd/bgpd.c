@@ -358,7 +358,7 @@ BROKEN	if (pledge("stdio rpath wpath cpath fattr unix route recvfd sendfd",
 
 		if (handle_pollfd(&pfd[PFD_PIPE_SESSION], ibuf_se) == -1) {
 			log_warnx("main: Lost connection to SE");
-			msgbuf_clear(&ibuf_se->w);
+			imsgbuf_clear(ibuf_se);
 			free(ibuf_se);
 			ibuf_se = NULL;
 			quit = 1;
@@ -370,7 +370,7 @@ BROKEN	if (pledge("stdio rpath wpath cpath fattr unix route recvfd sendfd",
 
 		if (handle_pollfd(&pfd[PFD_PIPE_RDE], ibuf_rde) == -1) {
 			log_warnx("main: Lost connection to RDE");
-			msgbuf_clear(&ibuf_rde->w);
+			imsgbuf_clear(ibuf_rde);
 			free(ibuf_rde);
 			ibuf_rde = NULL;
 			quit = 1;
@@ -381,7 +381,7 @@ BROKEN	if (pledge("stdio rpath wpath cpath fattr unix route recvfd sendfd",
 
 		if (handle_pollfd(&pfd[PFD_PIPE_RTR], ibuf_rtr) == -1) {
 			log_warnx("main: Lost connection to RTR");
-			msgbuf_clear(&ibuf_rtr->w);
+			imsgbuf_clear(ibuf_rtr);
 			free(ibuf_rtr);
 			ibuf_rtr = NULL;
 			quit = 1;
@@ -443,19 +443,19 @@ BROKEN	if (pledge("stdio rpath wpath cpath fattr unix route recvfd sendfd",
 
 	/* close pipes */
 	if (ibuf_se) {
-		msgbuf_clear(&ibuf_se->w);
+		imsgbuf_clear(ibuf_se);
 		close(ibuf_se->fd);
 		free(ibuf_se);
 		ibuf_se = NULL;
 	}
 	if (ibuf_rde) {
-		msgbuf_clear(&ibuf_rde->w);
+		imsgbuf_clear(ibuf_rde);
 		close(ibuf_rde->fd);
 		free(ibuf_rde);
 		ibuf_rde = NULL;
 	}
 	if (ibuf_rtr) {
-		msgbuf_clear(&ibuf_rtr->w);
+		imsgbuf_clear(ibuf_rtr);
 		close(ibuf_rtr->fd);
 		free(ibuf_rtr);
 		ibuf_rtr = NULL;

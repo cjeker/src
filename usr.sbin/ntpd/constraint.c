@@ -581,7 +581,7 @@ constraint_remove(struct constraint *cstr)
 {
 	TAILQ_REMOVE(&conf->constraints, cstr, entry);
 
-	msgbuf_clear(&cstr->ibuf.w);
+	imsgbuf_clear(&cstr->ibuf);
 	if (cstr->fd != -1)
 		close(cstr->fd);
 	free(cstr->addr_head.name);

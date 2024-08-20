@@ -291,9 +291,9 @@ ldpd_shutdown(void)
 	int		 status;
 
 	/* close pipes */
-	msgbuf_clear(&iev_ldpe->ibuf.w);
+	imsgbuf_clear(&iev_ldpe->ibuf);
 	close(iev_ldpe->ibuf.fd);
-	msgbuf_clear(&iev_lde->ibuf.w);
+	imsgbuf_clear(&iev_lde->ibuf);
 	close(iev_lde->ibuf.fd);
 
 	kr_shutdown();

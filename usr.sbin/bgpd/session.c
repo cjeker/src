@@ -475,7 +475,7 @@ session_main(int debug, int verbose)
 
 		if (handle_pollfd(&pfd[PFD_PIPE_ROUTE], ibuf_rde) == -1) {
 			log_warnx("SE: Lost connection to RDE");
-			msgbuf_clear(&ibuf_rde->w);
+			imsgbuf_clear(ibuf_rde);
 			free(ibuf_rde);
 			ibuf_rde = NULL;
 		} else
@@ -485,7 +485,7 @@ session_main(int debug, int verbose)
 		if (handle_pollfd(&pfd[PFD_PIPE_ROUTE_CTL], ibuf_rde_ctl) ==
 		    -1) {
 			log_warnx("SE: Lost connection to RDE control");
-			msgbuf_clear(&ibuf_rde_ctl->w);
+			imsgbuf_clear(ibuf_rde_ctl);
 			free(ibuf_rde_ctl);
 			ibuf_rde_ctl = NULL;
 		} else
@@ -540,17 +540,17 @@ session_main(int debug, int verbose)
 	/* close pipes */
 	if (ibuf_rde) {
 		imsgbuf_write(ibuf_rde);
-		msgbuf_clear(&ibuf_rde->w);
+		imsgbuf_clear(ibuf_rde);
 		close(ibuf_rde->fd);
 		free(ibuf_rde);
 	}
 	if (ibuf_rde_ctl) {
-		msgbuf_clear(&ibuf_rde_ctl->w);
+		imsgbuf_clear(ibuf_rde_ctl);
 		close(ibuf_rde_ctl->fd);
 		free(ibuf_rde_ctl);
 	}
 	imsgbuf_write(ibuf_main);
-	msgbuf_clear(&ibuf_main->w);
+	imsgbuf_clear(ibuf_main);
 	close(ibuf_main->fd);
 	free(ibuf_main);
 
@@ -2962,7 +2962,7 @@ session_dispatch_imsg(struct imsgbuf *imsgbuf, int idx, u_int *listener_cnt)
 				if (ibuf_rde) {
 					log_warnx("Unexpected imsg connection "
 					    "to RDE received");
-					msgbuf_clear(&ibuf_rde->w);
+					imsgbuf_clear(ibuf_rde);
 					free(ibuf_rde);
 				}
 				ibuf_rde = i;
@@ -2970,7 +2970,7 @@ session_dispatch_imsg(struct imsgbuf *imsgbuf, int idx, u_int *listener_cnt)
 				if (ibuf_rde_ctl) {
 					log_warnx("Unexpected imsg ctl "
 					    "connection to RDE received");
-					msgbuf_clear(&ibuf_rde_ctl->w);
+					imsgbuf_clear(ibuf_rde_ctl);
 					free(ibuf_rde_ctl);
 				}
 				ibuf_rde_ctl = i;

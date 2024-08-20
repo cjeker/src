@@ -74,7 +74,7 @@ void
 imsgev_clear(struct imsgev *iev)
 {
 	event_del(&iev->ev);
-	msgbuf_clear(&iev->ibuf.w);
+	imsgbuf_clear(&iev->ibuf);
 	close(iev->ibuf.fd);
 }
 
