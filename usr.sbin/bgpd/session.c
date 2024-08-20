@@ -1934,7 +1934,7 @@ session_dispatch_msg(struct pollfd *pfd, struct peer *p)
 		return (1);
 	}
 
-	if (pfd->revents & POLLOUT && p->wbuf.queued) {
+	if (pfd->revents & POLLOUT && msgbuf_queuelen(&p->wbuf) > 0) {
 		if (ibuf_write(&p->wbuf) == -1) {
 			if (errno == EPIPE)
 				log_peer_warnx(&p->conf, "Connection closed");
