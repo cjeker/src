@@ -586,7 +586,7 @@ evbuf_enqueue(struct evbuf *eb, struct ibuf *buf)
 void
 evbuf_event_add(struct evbuf *eb)
 {
-	if (eb->wbuf.queued)
+	if (msgbuf_queuelen(&eb->wbuf) > 0)
 		event_add(&eb->ev, NULL);
 }
 
