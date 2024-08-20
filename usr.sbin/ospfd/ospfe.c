@@ -211,10 +211,10 @@ ospfe_shutdown(void)
 
 	/* close pipes */
 	imsgbuf_write(&iev_rde->ibuf);
-	msgbuf_clear(&iev_rde->ibuf.w);
+	imsgbuf_clear(&iev_rde->ibuf);
 	close(iev_rde->ibuf.fd);
 	imsgbuf_write(&iev_main->ibuf);
-	msgbuf_clear(&iev_main->ibuf.w);
+	imsgbuf_clear(&iev_main->ibuf);
 	close(iev_main->ibuf.fd);
 
 	/* stop all interfaces and remove all areas */

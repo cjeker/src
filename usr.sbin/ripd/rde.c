@@ -164,9 +164,9 @@ __dead void
 rde_shutdown(void)
 {
 	/* close pipes */
-	msgbuf_clear(&iev_ripe->ibuf.w);
+	imsgbuf_clear(&iev_ripe->ibuf);
 	close(iev_ripe->ibuf.fd);
-	msgbuf_clear(&iev_main->ibuf.w);
+	imsgbuf_clear(&iev_main->ibuf);
 	close(iev_main->ibuf.fd);
 
 	rt_clear();

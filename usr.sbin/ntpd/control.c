@@ -179,7 +179,7 @@ control_close(int fd)
 		return (0);
 	}
 
-	msgbuf_clear(&c->ibuf.w);
+	imsgbuf_clear(&c->ibuf);
 	TAILQ_REMOVE(&ctl_conns, c, entry);
 
 	close(c->ibuf.fd);

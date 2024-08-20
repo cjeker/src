@@ -160,10 +160,10 @@ ldpe_shutdown(void)
 
 	/* close pipes */
 	imsgbuf_write(&iev_lde->ibuf);
-	msgbuf_clear(&iev_lde->ibuf.w);
+	imsgbuf_clear(&iev_lde->ibuf);
 	close(iev_lde->ibuf.fd);
 	imsgbuf_write(&iev_main->ibuf);
-	msgbuf_clear(&iev_main->ibuf.w);
+	imsgbuf_clear(&iev_main->ibuf);
 	close(iev_main->ibuf.fd);
 
 	control_cleanup();

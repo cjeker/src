@@ -461,10 +461,10 @@ ntp_main(struct ntpd_conf *nconf, struct passwd *pw, int argc, char **argv)
 	}
 
 	imsgbuf_write(ibuf_main);
-	msgbuf_clear(&ibuf_main->w);
+	imsgbuf_clear(ibuf_main);
 	free(ibuf_main);
 	imsgbuf_write(ibuf_dns);
-	msgbuf_clear(&ibuf_dns->w);
+	imsgbuf_clear(ibuf_dns);
 	free(ibuf_dns);
 
 	log_info("ntp engine exiting");

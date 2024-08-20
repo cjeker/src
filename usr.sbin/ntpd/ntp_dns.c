@@ -129,7 +129,7 @@ ntp_dns(struct ntpd_conf *nconf, struct passwd *pw)
 		}
 	}
 
-	msgbuf_clear(&ibuf_dns->w);
+	imsgbuf_clear(ibuf_dns);
 	free(ibuf_dns);
 	exit(0);
 }

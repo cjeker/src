@@ -221,7 +221,7 @@ control_close(struct ctl_conn *c)
 	if (c->terminate && c->imsgbuf.pid)
 		imsg_ctl_rde_msg(IMSG_CTL_TERMINATE, 0, c->imsgbuf.pid);
 
-	msgbuf_clear(&c->imsgbuf.w);
+	imsgbuf_clear(&c->imsgbuf);
 	TAILQ_REMOVE(&ctl_conns, c, entry);
 
 	close(c->imsgbuf.fd);

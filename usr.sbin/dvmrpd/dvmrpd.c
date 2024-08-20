@@ -274,9 +274,9 @@ dvmrpd_shutdown(void)
 	int		 status;
 
 	/* close pipes */
-	msgbuf_clear(&iev_dvmrpe->ibuf.w);
+	imsgbuf_clear(&iev_dvmrpe->ibuf);
 	close(iev_dvmrpe->ibuf.fd);
-	msgbuf_clear(&iev_rde->ibuf.w);
+	imsgbuf_clear(&iev_rde->ibuf);
 	close(iev_rde->ibuf.fd);
 
 	control_cleanup();

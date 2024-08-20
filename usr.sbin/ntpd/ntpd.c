@@ -365,7 +365,7 @@ main(int argc, char *argv[])
 			fatal("wait");
 	} while (pid != -1 || (pid == -1 && errno == EINTR));
 
-	msgbuf_clear(&ibuf->w);
+	imsgbuf_clear(ibuf);
 	free(ibuf);
 	log_info("Terminating");
 	return (0);

@@ -264,7 +264,7 @@ rtr_main(int debug, int verbose)
 
 		if (handle_pollfd(&pfd[PFD_PIPE_RDE], ibuf_rde) == -1) {
 			log_warnx("RTR: Lost connection to RDE");
-			msgbuf_clear(&ibuf_rde->w);
+			imsgbuf_clear(ibuf_rde);
 			free(ibuf_rde);
 			ibuf_rde = NULL;
 		} else
@@ -290,11 +290,11 @@ rtr_main(int debug, int verbose)
 
 	/* close pipes */
 	if (ibuf_rde) {
-		msgbuf_clear(&ibuf_rde->w);
+		imsgbuf_clear(ibuf_rde);
 		close(ibuf_rde->fd);
 		free(ibuf_rde);
 	}
-	msgbuf_clear(&ibuf_main->w);
+	imsgbuf_clear(ibuf_main);
 	close(ibuf_main->fd);
 	free(ibuf_main);
 
@@ -331,7 +331,7 @@ rtr_dispatch_imsg_parent(struct imsgbuf *imsgbuf)
 			if (ibuf_rde) {
 				log_warnx("Unexpected imsg ctl "
 				    "connection to RDE received");
-				msgbuf_clear(&ibuf_rde->w);
+				imsgbuf_clear(ibuf_rde);
 				free(ibuf_rde);
 			}
 			if ((ibuf_rde = malloc(sizeof(struct imsgbuf))) == NULL)
