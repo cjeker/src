@@ -1248,7 +1248,7 @@ set_pollfd(struct pollfd *pfd, struct imsgbuf *i)
 	}
 	pfd->fd = i->fd;
 	pfd->events = POLLIN;
-	if (i->w.queued > 0)
+	if (imsgbuf_queuelen(i) > 0)
 		pfd->events |= POLLOUT;
 }
 

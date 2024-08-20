@@ -111,7 +111,7 @@ proc_event_cb(__unused int fd, short events, void *arg)
 		}
 	}
 
-	if ((peer->flags & PEER_BAD) && peer->ibuf.w.queued == 0) {
+	if ((peer->flags & PEER_BAD) && imsgbuf_queuelen(&peer->ibuf) == 0) {
 		peer->dispatchcb(NULL, peer->arg);
 		return;
 	}
@@ -152,7 +152,7 @@ proc_update_event(struct tmuxpeer *peer)
 	event_del(&peer->event);
 
 	events = EV_READ;
-	if (peer->ibuf.w.queued > 0)
+	if (imsgbuf_queuelen(&peer->ibuf) > 0)
 		events |= EV_WRITE;
 	event_set(&peer->event, peer->ibuf.fd, events, proc_event_cb, peer);
 

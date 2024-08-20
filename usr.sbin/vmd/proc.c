@@ -687,7 +687,7 @@ imsg_event_add2(struct imsgev *iev, struct event_base *ev_base)
 	}
 
 	iev->events = EV_READ;
-	if (iev->ibuf.w.queued)
+	if (imsgbuf_queuelen(&iev->ibuf) > 0)
 		iev->events |= EV_WRITE;
 
 	event_del(&iev->ev);

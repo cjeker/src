@@ -85,7 +85,7 @@ imsgev_add(struct imsgev *iev)
 
 	if (!iev->terminate)
 		events = EV_READ;
-	if (iev->ibuf.w.queued || iev->terminate)
+	if (imsgbuf_queuelen(&iev->ibuf) > 0 || iev->terminate)
 		events |= EV_WRITE;
 
 	/* optimization: skip event_{del/set/add} if already set */
@@ -128,7 +128,8 @@ imsgev_dispatch(int fd, short ev, void *humppa)
 			 * if write data is pending.
 			 */
 			imsgev_disconnect(iev,
-			    (iev->ibuf.w.queued) ? IMSGEV_EWRITE : IMSGEV_DONE);
+			    imsgbuf_queuelen(&iev->ibuf) > 0 ? IMSGEV_EWRITE :
+			    IMSGEV_DONE);
 			return;
 		}
 	}
@@ -156,7 +157,7 @@ imsgev_dispatch(int fd, short ev, void *humppa)
 		imsg_free(&imsg);
 	}
 
-	if (iev->terminate && iev->ibuf.w.queued == 0) {
+	if (iev->terminate && imsgbuf_queuelen(&iev->ibuf) == 0) {
 		imsgev_disconnect(iev, IMSGEV_DONE);
 		return;
 	}

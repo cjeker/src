@@ -256,7 +256,7 @@ control_dispatch_imsg(int fd, short event, void *arg)
 			control_close(fd, cs);
 			return;
 		}
-		if (!c->iev.ibuf.w.queued)
+		if (imsgbuf_queuelen(&c->iev.ibuf) > 0)
 			npppd_ctl_imsg_compose(c->ctx, &c->iev.ibuf);
 		imsg_event_add(&c->iev);
 		if (!(event & EV_READ))
@@ -330,7 +330,7 @@ control_dispatch_imsg(int fd, short event, void *arg)
 		}
 		imsg_free(&imsg);
 	}
-	if (!c->iev.ibuf.w.queued)
+	if (imsgbuf_queuelen(&c->iev.ibuf) > 0)
 		npppd_ctl_imsg_compose(c->ctx, &c->iev.ibuf);
 	imsg_event_add(&c->iev);
 }
