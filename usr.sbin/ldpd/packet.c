@@ -602,7 +602,7 @@ session_write(int fd, short event, void *arg)
 		if (nbr)
 			nbr_fsm(nbr, NBR_EVT_CLOSE_SESSION);
 
-	if (nbr == NULL && !tcp->wbuf.wbuf.queued) {
+	if (nbr == NULL && msgbuf_queuelen(&tcp->wbuf.wbuf) == 0) {
 		/*
 		 * We are done sending the notification message, now we can
 		 * close the socket.
