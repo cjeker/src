@@ -304,7 +304,7 @@ main(int argc, char *argv[])
 		memset(pfd, 0, sizeof(*pfd) * pfd_elms);
 		pfd[PFD_PIPE].fd = ibuf->fd;
 		pfd[PFD_PIPE].events = POLLIN;
-		if (ibuf->w.queued)
+		if (imsgbuf_queuelen(ibuf) > 0)
 			pfd[PFD_PIPE].events |= POLLOUT;
 
 		i = PFD_MAX;

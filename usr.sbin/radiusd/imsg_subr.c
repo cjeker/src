@@ -61,7 +61,7 @@ imsg_sync_flush(struct imsgbuf *ibuf, int millisec)
 	struct pollfd	 fds[1];
 	int		 retval;
 
-	if (!ibuf->w.queued)
+	if (imsgbuf_queuelen(ibuf) == 0)
 		return (0);	/* already flushed */
 
 	fds[0].fd = ibuf->fd;

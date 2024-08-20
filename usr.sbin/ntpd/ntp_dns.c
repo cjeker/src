@@ -107,7 +107,7 @@ ntp_dns(struct ntpd_conf *nconf, struct passwd *pw)
 	while (quit_dns == 0) {
 		pfd[0].fd = ibuf_dns->fd;
 		pfd[0].events = POLLIN;
-		if (ibuf_dns->w.queued)
+		if (imsgbuf_queuelen(ibuf_dns) > 0)
 			pfd[0].events |= POLLOUT;
 
 		if ((nfds = poll(pfd, 1, INFTIM)) == -1)

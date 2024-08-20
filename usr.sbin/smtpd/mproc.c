@@ -115,7 +115,7 @@ mproc_event_add(struct mproc *p)
 	else
 		events = 0;
 
-	if (p->imsgbuf.w.queued)
+	if (imsgbuf_queuelen(&p->imsgbuf) > 0)
 		events |= EV_WRITE;
 
 	if (p->events)

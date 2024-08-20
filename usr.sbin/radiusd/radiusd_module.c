@@ -666,7 +666,7 @@ module_reset_event(struct module_base *base)
 	event_del(&base->ev);
 
 	evmask |= EV_READ;
-	if (base->ibuf.w.queued) {
+	if (imsgbuf_queuelen(&base->ibuf) > 0) {
 		if (!base->writeready)
 			evmask |= EV_WRITE;
 		else

@@ -200,7 +200,7 @@ npppd_ctl_imsg_compose(struct npppd_ctl *_this, struct imsgbuf *ibuf)
 	npppd_ppp             *ppp;
 	struct stopped_ppp    *e, *t;
 
-	if (ibuf->w.queued)
+	if (imsgbuf_queuelen(ibuf) > 0)
 		return (0);
 
 	cnt = 0;
