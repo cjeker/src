@@ -132,7 +132,7 @@ int		 msgbuf_write(struct msgbuf *);
 
 /* imsg.c */
 void	 imsgbuf_init(struct imsgbuf *, int);
-ssize_t	 imsgbuf_read(struct imsgbuf *);
+int	 imsgbuf_read(struct imsgbuf *);
 int	 imsgbuf_write(struct imsgbuf *);
 int	 imsgbuf_flush(struct imsgbuf *);
 void	 imsgbuf_clear(struct imsgbuf *);
