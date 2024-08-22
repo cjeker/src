@@ -193,7 +193,7 @@ srv_recv(int type)
 		}
 
 		if ((n = imsgbuf_read(ibuf)) == -1)
-			errx(1, "imsgbuf_read error");
+			err(1, "read error");
 		if (n == 0)
 			errx(1, "pipe closed");
 	}
