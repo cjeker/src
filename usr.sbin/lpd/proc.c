@@ -281,8 +281,6 @@ proc_dispatch(int fd, short event, void *arg)
 		n = imsgbuf_read(&p->imsgbuf);
 		switch (n) {
 		case -1:
-			if (errno == EAGAIN)
-				break;
 			log_warn("%s: imsgbuf_read", __func__);
 			proc_callback(p, NULL);
 			return;
