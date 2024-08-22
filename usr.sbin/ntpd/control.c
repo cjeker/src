@@ -215,7 +215,7 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 	if (!(pfd->revents & POLLIN))
 		return (0);
 
-	if (((n = imsgbuf_read(&c->ibuf)) == -1 && errno != EAGAIN) || n == 0) {
+	if (imsgbuf_read(&c->ibuf) != 1) {
 		*ctl_cnt -= control_close(pfd->fd);
 		return (1);
 	}

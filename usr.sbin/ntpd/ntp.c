@@ -477,7 +477,7 @@ ntp_dispatch_imsg(void)
 	struct imsg		 imsg;
 	int			 n;
 
-	if (((n = imsgbuf_read(ibuf_main)) == -1 && errno != EAGAIN) || n == 0)
+	if (imsgbuf_read(ibuf_main) != 1)
 		return (-1);
 
 	for (;;) {
@@ -551,7 +551,7 @@ ntp_dispatch_imsg_dns(void)
 	size_t			 addrcount, peercount;
 	int			 n;
 
-	if (((n = imsgbuf_read(ibuf_dns)) == -1 && errno != EAGAIN) || n == 0)
+	if (imsgbuf_read(ibuf_dns) != 1)
 		return (-1);
 
 	for (;;) {
