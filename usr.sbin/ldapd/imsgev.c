@@ -109,17 +109,14 @@ imsgev_dispatch(int fd, short ev, void *humppa)
 	iev->events = 0;
 
 	if (ev & EV_READ) {
-		if ((n = imsgbuf_read(ibuf)) == -1) {
-			/* if we don't have enough fds, free one up and retry */
-			if (errno == EAGAIN) {
-				iev->needfd(iev);
-				n = imsgbuf_read(ibuf);
-			}
+		/* if we don't have enough fds, free one up and retry */
+		if (getdtablesize() <= getdtablecount() +
+		    (int)((CMSG_SPACE(sizeof(int))-CMSG_SPACE(0))/sizeof(int)))
+			iev->needfd(iev);
 
-			if (n == -1) {
-				imsgev_disconnect(iev, IMSGEV_EREAD);
-				return;
-			}
+		if ((n = imsgbuf_read(ibuf)) == -1) {
+			imsgev_disconnect(iev, IMSGEV_EREAD);
+			return;
 		}
 		if (n == 0) {
 			/*
