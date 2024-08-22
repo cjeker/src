@@ -34,8 +34,6 @@ struct imsg_fd {
 	int			fd;
 };
 
-int	 imsg_fd_overhead = 0;
-
 static int	 imsg_dequeue_fd(struct imsgbuf *);
 
 void
@@ -77,15 +75,15 @@ imsgbuf_read(struct imsgbuf *imsgbuf)
 		return (-1);
 
 again:
-	if (getdtablecount() + imsg_fd_overhead +
-	    (int)((CMSG_SPACE(sizeof(int))-CMSG_SPACE(0))/sizeof(int))
-	    >= getdtablesize()) {
-		free(ifd);
-		return (1);
-	}
-
 	if ((n = recvmsg(imsgbuf->fd, &msg, 0)) == -1) {
 		if (errno == EINTR)
+			goto again;
+		if (errno == EMSGSIZE)
+			/*
+			 * Not enough fd slots: fd passing failed, retry
+			 * to receive the message without fd.
+			 * imsg_get_fd() will return -1 in that case.
+			 */
 			goto again;
 		if (errno == EAGAIN)
 			return (1);
