@@ -1013,8 +1013,7 @@ imsg_wait(struct imsgbuf *ibuf, struct imsg *imsg, int timeout)
 			return -1;
 		}
 
-		if (((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN) ||
-		    n == 0)
+		if (imsgbuf_read(ibuf) != 1)
 			return -1;
 	}
 }

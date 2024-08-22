@@ -1281,7 +1281,7 @@ handle_pollfd(struct pollfd *pfd, struct imsgbuf *i)
 		}
 
 	if (pfd->revents & POLLIN) {
-		if ((n = imsgbuf_read(i)) == -1 && errno != EAGAIN) {
+		if ((n = imsgbuf_read(i)) == -1) {
 			log_warn("imsg read error");
 			close(i->fd);
 			i->fd = -1;

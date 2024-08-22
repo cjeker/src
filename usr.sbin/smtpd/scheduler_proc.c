@@ -53,7 +53,7 @@ scheduler_proc_call(void)
 			return;
 		}
 
-		if ((n = imsgbuf_read(&ibuf)) == -1 && errno != EAGAIN) {
+		if ((n = imsgbuf_read(&ibuf)) == -1) {
 			log_warn("warn: scheduler-proc: imsgbuf_read");
 			break;
 		}
