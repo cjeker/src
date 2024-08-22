@@ -393,7 +393,7 @@ dispatch_imsg(struct ntpd_conf *lconf, int argc, char **argv)
 	int			 n;
 	double			 d;
 
-	if (((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN) || n == 0)
+	if (imsgbuf_read(ibuf) != 1)
 		return (-1);
 
 	for (;;) {
@@ -699,7 +699,7 @@ ctl_main(int argc, char *argv[])
 
 	done = 0;
 	while (!done) {
-		if ((n = imsgbuf_read(ibuf_ctl)) == -1 && errno != EAGAIN)
+		if ((n = imsgbuf_read(ibuf_ctl)) == -1)
 			err(1, "ibuf_ctl: imsgbuf_read error");
 		if (n == 0)
 			errx(1, "ntpctl: pipe closed");

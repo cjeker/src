@@ -145,7 +145,7 @@ dns_dispatch_imsg(struct ntpd_conf *nconf)
 	const char		*str;
 	size_t			 len;
 
-	if (((n = imsgbuf_read(ibuf_dns)) == -1 && errno != EAGAIN) || n == 0)
+	if (imsgbuf_read(ibuf_dns) != 1)
 		return (-1);
 
 	for (;;) {
