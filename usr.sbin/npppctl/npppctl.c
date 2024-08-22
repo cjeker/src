@@ -516,8 +516,7 @@ imsg_wait_command_completion(void)
 			return (-1);
 		if (n != 0)
 			break;
-		if (((n = imsgbuf_read(&ctl_ibuf)) == -1 && errno != EAGAIN) ||
-		    n == 0)
+		if (imsgbuf_read(&ctl_ibuf) != 1)
 			return (-1);
 	} while (1);
 

@@ -954,11 +954,8 @@ imsg_read_and_get(struct imsgbuf *ibuf, struct imsg *imsg)
 	ssize_t	 n;
 
 	for (;;) {
-		if ((n = imsgbuf_read(ibuf)) <= 0) {
-			if (n == -1 && (errno == EAGAIN || errno == EINTR))
-				continue;
+		if (imsgbuf_read(ibuf) != 1)
 			return (-1);
-		}
 		if ((n = imsg_get(ibuf, imsg)) < 0)
 			return (-1);
 		if (n == 0)
