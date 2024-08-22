@@ -50,4 +50,11 @@ atomiciov6(ssize_t (*f) (int, const struct iovec *, int), int fd,
 size_t	atomiciov(ssize_t (*)(int, const struct iovec *, int),
     int, const struct iovec *, int);
 
+/*
+ * Ensure one imsg is read from socket used by imsgbuf.
+ */
+struct imsgbuf;
+struct imsg;
+int imsgbuf_read_one(struct imsgbuf *, struct imsg *);
+
 #endif /* _ATOMICIO_H */

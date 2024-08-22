@@ -1382,9 +1382,7 @@ virtio_dev_launch(struct vmd_vm *vm, struct virtio_dev *dev)
 		 * report itself "ready" to confirm the launch was a success.
 		 */
 		imsgbuf_init(&iev->ibuf, sync_fds[0]);
-		do
-			ret = imsgbuf_read(&iev->ibuf);
-		while (ret == -1 && errno == EAGAIN);
+		ret = imsgbuf_read_one(&iev->ibuf, &imsg);
 		if (ret == 0 || ret == -1) {
 			log_warnx("%s: failed to receive ready message from "
 			    "'%c' type device", __func__, dev->dev_type);
@@ -1393,12 +1391,6 @@ virtio_dev_launch(struct vmd_vm *vm, struct virtio_dev *dev)
 		}
 		ret = 0;
 
-		log_debug("%s: receiving reply", __func__);
-		if (imsg_get(&iev->ibuf, &imsg) < 1) {
-			log_warnx("%s: imsg_get", __func__);
-			ret = EIO;
-			goto err;
-		}
 		IMSG_SIZE_CHECK(&imsg, &msg);
 		memcpy(&msg, imsg.data, sizeof(msg));
 		imsg_free(&imsg);
@@ -1525,7 +1517,7 @@ virtio_dispatch_dev(int fd, short event, void *arg)
 	ssize_t			 n = 0;
 
 	if (event & EV_READ) {
-		if ((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN)
+		if ((n = imsgbuf_read(ibuf)) == -1)
 			fatal("%s: imsgbuf_read", __func__);
 		if (n == 0) {
 			/* this pipe is dead, so remove the event handler */
@@ -1620,7 +1612,6 @@ virtio_pci_io(int dir, uint16_t reg, uint32_t *data, uint8_t *intr,
 	struct imsgbuf *ibuf = &dev->sync_iev.ibuf;
 	struct imsg imsg;
 	struct viodev_msg msg;
-	ssize_t n;
 	int ret = 0;
 
 	memset(&msg, 0, sizeof(msg));
@@ -1666,22 +1657,11 @@ virtio_pci_io(int dir, uint16_t reg, uint32_t *data, uint8_t *intr,
 		}
 
 		/* Read our reply. */
-		do
-			n = imsgbuf_read(ibuf);
-		while (n == -1 && errno == EAGAIN);
-		if (n == 0 || n == -1) {
-			log_warn("%s: imsgbuf_read (n=%ld)", __func__, n);
+		ret = imsgbuf_read_one(ibuf, &imsg);
+		if (ret == 0 || ret == -1) {
+			log_warn("%s: imsgbuf_read (n=%d)", __func__, ret);
 			return (-1);
 		}
-		if ((n = imsg_get(ibuf, &imsg)) == -1) {
-			log_warn("%s: imsg_get (n=%ld)", __func__, n);
-			return (-1);
-		}
-		if (n == 0) {
-			log_warnx("%s: invalid imsg", __func__);
-			return (-1);
-		}
-
 		IMSG_SIZE_CHECK(&imsg, &msg);
 		memcpy(&msg, imsg.data, sizeof(msg));
 		imsg_free(&imsg);
