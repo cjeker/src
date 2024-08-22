@@ -231,8 +231,7 @@ control_dispatch_imsg(int fd, short event, void *arg)
 	}
 
 	if (event & EV_READ) {
-		if (((n = imsgbuf_read(&c->iev.ibuf)) == -1 &&
-		    errno != EAGAIN) || n == 0) {
+		if (imsgbuf_read(&c->iev.ibuf) != 1) {
 			control_close(fd, cs);
 			return;
 		}

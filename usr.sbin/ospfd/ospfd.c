@@ -358,7 +358,7 @@ main_dispatch_ospfe(int fd, short event, void *bula)
 	ibuf = &iev->ibuf;
 
 	if (event & EV_READ) {
-		if ((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN)
+		if ((n = imsgbuf_read(ibuf)) == -1)
 			fatal("imsgbuf_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;
@@ -446,7 +446,7 @@ main_dispatch_rde(int fd, short event, void *bula)
 	ibuf = &iev->ibuf;
 
 	if (event & EV_READ) {
-		if ((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN)
+		if ((n = imsgbuf_read(ibuf)) == -1)
 			fatal("imsgbuf_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;

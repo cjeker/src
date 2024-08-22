@@ -277,7 +277,7 @@ vmmaction(struct parse_result *res)
 		err(1, "write error");
 
 	while (!done) {
-		if ((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN)
+		if ((n = imsgbuf_read(ibuf)) == -1)
 			errx(1, "imsgbuf_read error");
 		if (n == 0)
 			errx(1, "pipe closed");

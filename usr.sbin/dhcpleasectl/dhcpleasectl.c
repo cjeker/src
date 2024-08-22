@@ -173,7 +173,7 @@ main(int argc, char *argv[])
 		if (imsgbuf_flush(ibuf) == -1)
 			err(1, "write error");
 
-		if ((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN)
+		if ((n = imsgbuf_read(ibuf)) == -1)
 			errx(1, "imsgbuf_read error");
 		if (n == 0)
 			errx(1, "pipe closed");

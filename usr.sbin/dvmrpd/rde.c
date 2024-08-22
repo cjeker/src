@@ -206,7 +206,7 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 	struct iface		*iface;
 
 	if (event & EV_READ) {
-		if ((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN)
+		if ((n = imsgbuf_read(ibuf)) == -1)
 			fatal("imsgbuf_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;

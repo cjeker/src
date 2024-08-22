@@ -319,7 +319,7 @@ frontend_dispatch_main(int fd, short event, void *bula)
 	int				 n, shut = 0, icmp6sock, rdomain;
 
 	if (event & EV_READ) {
-		if ((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN)
+		if ((n = imsgbuf_read(ibuf)) == -1)
 			fatal("imsgbuf_read error");
 		if (n == 0)	/* Connection closed. */
 			shut = 1;
@@ -534,7 +534,7 @@ frontend_dispatch_engine(int fd, short event, void *bula)
 	int			 n, shut = 0;
 
 	if (event & EV_READ) {
-		if ((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN)
+		if ((n = imsgbuf_read(ibuf)) == -1)
 			fatal("imsgbuf_read error");
 		if (n == 0)	/* Connection closed. */
 			shut = 1;

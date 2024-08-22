@@ -357,7 +357,7 @@ rsae_send_imsg(int flen, const u_char *from, u_char *to, RSA *rsa,
 		default:
 			break;
 		}
-		if ((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN)
+		if ((n = imsgbuf_read(ibuf)) == -1)
 			fatalx("imsgbuf_read");
 		if (n == 0)
 			fatalx("pipe closed");
