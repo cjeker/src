@@ -241,7 +241,7 @@ dvmrpe_dispatch_main(int fd, short event, void *bula)
 	int		 shut = 0, link_ok;
 
 	if (event & EV_READ) {
-		if ((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN)
+		if ((n = imsgbuf_read(ibuf)) == -1)
 			fatal("imsgbuf_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;
@@ -257,7 +257,7 @@ dvmrpe_dispatch_main(int fd, short event, void *bula)
 
 	for (;;) {
 		if ((n = imsg_get(ibuf, &imsg)) == -1)
-			fatal("dvmrpe_dispatch_main: imsgbuf_read error");
+			fatal("dvmrpe_dispatch_main: imsg_get error");
 		if (n == 0)
 			break;
 
@@ -317,7 +317,7 @@ dvmrpe_dispatch_rde(int fd, short event, void *bula)
 	int			 shut = 0;
 
 	if (event & EV_READ) {
-		if ((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN)
+		if ((n = imsgbuf_read(ibuf)) == -1)
 			fatal("imsgbuf_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;
@@ -333,7 +333,7 @@ dvmrpe_dispatch_rde(int fd, short event, void *bula)
 
 	for (;;) {
 		if ((n = imsg_get(ibuf, &imsg)) == -1)
-			fatal("dvmrpe_dispatch_rde: imsgbuf_read error");
+			fatal("dvmrpe_dispatch_rde: imsgbuf_get error");
 		if (n == 0)
 			break;
 
