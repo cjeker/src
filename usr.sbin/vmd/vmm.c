@@ -495,7 +495,7 @@ vmm_dispatch_vm(int fd, short event, void *arg)
 	unsigned int		 i;
 
 	if (event & EV_READ) {
-		if ((n = imsgbuf_read(ibuf)) == -1 && errno != EAGAIN)
+		if ((n = imsgbuf_read(ibuf)) == -1)
 			fatal("%s: imsgbuf_read", __func__);
 		if (n == 0) {
 			/* This pipe is dead, so remove the event handler */
