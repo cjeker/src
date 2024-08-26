@@ -81,7 +81,6 @@ struct iovec;
 struct ibuf	*ibuf_open(size_t);
 struct ibuf	*ibuf_dynamic(size_t, size_t);
 int		 ibuf_add(struct ibuf *, const void *, size_t);
-int		 ibuf_add_buf(struct ibuf *, const struct ibuf *);
 int		 ibuf_add_ibuf(struct ibuf *, const struct ibuf *);
 int		 ibuf_add_zero(struct ibuf *, size_t);
 int		 ibuf_add_n8(struct ibuf *, uint64_t);
