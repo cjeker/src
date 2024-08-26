@@ -136,13 +136,6 @@ ibuf_add_ibuf(struct ibuf *buf, const struct ibuf *from)
 	return ibuf_add(buf, ibuf_data(from), ibuf_size(from));
 }
 
-/* remove after tree is converted */
-int
-ibuf_add_buf(struct ibuf *buf, const struct ibuf *from)
-{
-	return ibuf_add_ibuf(buf, from);
-}
-
 int
 ibuf_add_n8(struct ibuf *buf, uint64_t value)
 {

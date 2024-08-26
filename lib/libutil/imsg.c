@@ -370,7 +370,7 @@ imsg_forward(struct imsgbuf *imsgbuf, struct imsg *msg)
 		return (-1);
 
 	if (msg->buf != NULL) {
-		if (ibuf_add_buf(wbuf, msg->buf) == -1) {
+		if (ibuf_add_ibuf(wbuf, msg->buf) == -1) {
 			ibuf_free(wbuf);
 			return (-1);
 		}
