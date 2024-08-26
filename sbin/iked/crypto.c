@@ -572,7 +572,7 @@ cipher_init(struct iked_cipher *encr, int enc)
 		    encr->encr_saltlength), encr->encr_saltlength);
 		if (nonce == NULL)
 			return (-1);
-		if (ibuf_add_buf(nonce, encr->encr_iv) != 0)
+		if (ibuf_add_ibuf(nonce, encr->encr_iv) != 0)
 			goto done;
 		if (EVP_CipherInit_ex(encr->encr_ctx, NULL, NULL,
 		    ibuf_data(encr->encr_key), ibuf_data(nonce), enc) != 1)

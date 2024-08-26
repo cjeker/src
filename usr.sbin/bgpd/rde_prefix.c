@@ -574,7 +574,7 @@ pt_writebuf(struct ibuf *buf, struct pt_entry *pte, int withdraw,
 	/* keep 2 bytes reserved in the withdraw case for IPv4 encoding */
 	if (withdraw && ibuf_left(buf) < ibuf_size(tmp) + 2)
 		goto fail;
-	if (ibuf_add_buf(buf, tmp) == -1)
+	if (ibuf_add_ibuf(buf, tmp) == -1)
 		goto fail;
 	ibuf_free(tmp);
 	return 0;
