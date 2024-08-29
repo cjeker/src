@@ -483,12 +483,6 @@ setrunnable(struct proc *p)
 	default:
 		panic("setrunnable");
 	case SSTOP:
-		/*
-		 * If we're being traced (possibly because someone attached us
-		 * while we were stopped), check for a signal from the debugger.
-		 */
-		if ((pr->ps_flags & PS_TRACED) != 0 && pr->ps_xsig != 0)
-			atomic_setbits_int(&p->p_siglist, sigmask(pr->ps_xsig));
 		prio = p->p_usrpri;
 		setrunqueue(NULL, p, prio);
 		break;
