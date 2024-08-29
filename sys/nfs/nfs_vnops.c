@@ -2441,7 +2441,7 @@ nfs_readdirrpc(struct vnode *vp, struct uio *uiop, struct ucred *cred,
 					goto nfsmout;
 				cp = uiop->uio_iov->iov_base;
 				tlen -= NFS_DIRHDSIZ + len;
-				*cp = '\0';	/* null terminate */
+				memset(cp, 0, tlen); 	/* null terminate */
 				uiop->uio_iov->iov_base += tlen;
 				uiop->uio_iov->iov_len -= tlen;
 				uiop->uio_resid -= tlen;
@@ -2636,7 +2636,7 @@ nfs_readdirplusrpc(struct vnode *vp, struct uio *uiop, struct ucred *cred,
 					goto nfsmout;
 				cp = uiop->uio_iov->iov_base;
 				tlen -= NFS_DIRHDSIZ + len;
-				*cp = '\0';
+				memset(cp, 0, tlen);	/* null terminate */
 				uiop->uio_iov->iov_base += tlen;
 				uiop->uio_iov->iov_len -= tlen;
 				uiop->uio_resid -= tlen;
