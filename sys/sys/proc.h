@@ -201,9 +201,9 @@ struct process {
 	int	ps_xsig;		/* Stopping or killing signal */
 
 	pid_t	ps_ppid;		/* [K|m] Cached parent pid */
-	pid_t	ps_oppid;	 	/* [K|m] Old parent pid during ptrace */
 	int	ps_ptmask;		/* Ptrace event mask */
 	struct	ptrace_state *ps_ptstat;/* Ptrace state */
+	struct	process *ps_opptr; 	/* [K|m] Old parent during ptrace. */
 
 	struct	rusage *ps_ru;		/* sum of stats for dead threads. */
 	struct	tusage ps_tu;		/* [m] accumul times of dead threads. */

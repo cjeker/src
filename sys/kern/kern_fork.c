@@ -459,7 +459,7 @@ fork1(struct proc *curp, int flags, void (*func)(void *), void *arg,
 
 	mtx_enter(&pr->ps_mtx);
 	if (pr->ps_flags & PS_TRACED) {
-		pr->ps_oppid = curpr->ps_pid;
+		pr->ps_opptr = curpr;
 		process_reparent(pr, curpr->ps_pptr);
 
 		/*
