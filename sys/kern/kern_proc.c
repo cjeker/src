@@ -462,7 +462,7 @@ orphanpg(struct pgrp *pg)
 	struct process *pr;
 
 	LIST_FOREACH(pr, &pg->pg_members, ps_pglist) {
-		if (pr->ps_mainproc->p_stat == SSTOP) {
+		if (pr->ps_flags & PS_STOPPED) {
 			LIST_FOREACH(pr, &pg->pg_members, ps_pglist) {
 				prsignal(pr, SIGHUP);
 				prsignal(pr, SIGCONT);
