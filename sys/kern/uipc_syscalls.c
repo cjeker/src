@@ -788,11 +788,8 @@ sendit(struct proc *p, int s, struct msghdr *mp, int flags, register_t *retsize)
 		if (auio.uio_resid != len && (error == ERESTART ||
 		    error == EINTR || error == EWOULDBLOCK))
 			error = 0;
-		if (error == EPIPE && (flags & MSG_NOSIGNAL) == 0) {
-			KERNEL_LOCK();
+		if (error == EPIPE && (flags & MSG_NOSIGNAL) == 0)
 			ptsignal(p, SIGPIPE, STHREAD);
-			KERNEL_UNLOCK();
-		}
 	}
 	if (error == 0) {
 		*retsize = len - auio.uio_resid;
