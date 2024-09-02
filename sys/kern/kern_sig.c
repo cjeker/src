@@ -902,6 +902,16 @@ psignal(struct proc *p, int signum)
 	ptsignal(p, signum, SPROCESS);
 }
 
+void
+prsignal(struct process *pr, int signum)
+{
+	/* Ignore signal if the target process is exiting */
+	if (pr->ps_flags & PS_EXITING) {
+		return;
+	}
+	ptsignal(TAILQ_FIRST(&pr->ps_threads), signum, SPROCESS);
+}
+
 /*
  * type = SPROCESS	process signal, can be diverted (sigwait())
  * type = STHREAD	thread signal, but should be propagated if unhandled
