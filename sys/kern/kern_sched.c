@@ -524,6 +524,15 @@ sched_steal_proc(struct cpu_info *self)
 		cpuset_del(&set, ci);
 
 		spc = &ci->ci_schedstate;
+#if NOTYET
+		XXX this currently fails because on some archs the
+		CPUs are added to sched_all_cpus early on before the
+		schduler actually runs on them and we queue threads
+		there but those never run if this is in.
+		/* Only steal if other CPU has enough to do. */
+		if (!cold && spc->spc_nrun < 3)
+			continue;
+#endif
 
 		queue = ffs(spc->spc_whichqs) - 1;
 		TAILQ_FOREACH(p, &spc->spc_qs[queue], p_runq) {
