@@ -89,7 +89,7 @@ struct	sigacts {
 #define	sigcantmask	(sigmask(SIGKILL) | sigmask(SIGSTOP))
 
 #ifdef _KERNEL
-enum signal_type { SPROCESS, STHREAD, SPROPAGATED };
+enum signal_type { SPROCESS, STHREAD };
 
 struct sigio_ref;
 
