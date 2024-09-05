@@ -118,6 +118,7 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 {
 	struct process *pr, *qr, *nqr;
 	struct rusage *rup;
+	int wakeparent = 0;
 
 	atomic_setbits_int(&p->p_flag, P_WEXIT);
 
@@ -169,6 +170,10 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 		if (--pr->ps_singlecnt == 0)
 			wakeup(&pr->ps_singlecnt);
 	}
+	if (pr->ps_flags & PS_STOPPING) {
+		if (--pr->ps_stopcnt == 0)
+			wakeparent = 1;
+	}
 
 	/* proc is off ps_threads list so update accounting of process now */
 	tuagg_add_runtime();
@@ -181,6 +186,10 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 			    "thrdeath", INFSLP);
 	}
 	mtx_leave(&pr->ps_mtx);
+
+	/* XXX because KERNEL_LOCK in ptsignal, grrrrr */
+	if (wakeparent)
+		process_stopped(p);
 
 	rup = pr->ps_ru;
 	if (rup == NULL) {
@@ -543,13 +552,9 @@ loop:
 				proc_finish_wait(q, pr);
 			return (0);
 		}
-		if ((options & WTRAPPED) &&
-		    (pr->ps_flags & PS_TRACED) &&
-		    (pr->ps_flags & PS_WAITED) == 0 && pr->ps_single &&
-		    pr->ps_single->p_stat == SSTOP) {
-			if (single_thread_wait(pr, 0))
-				goto loop;
-
+		if ((options & WTRAPPED) && (pr->ps_flags & PS_TRACED) &&
+		    (pr->ps_flags & PS_WAITED) == 0 &&
+		    (pr->ps_flags & PS_STOPPED)) {
 			if ((options & WNOWAIT) == 0)
 				atomic_setbits_int(&pr->ps_flags, PS_WAITED);
 
@@ -568,7 +573,7 @@ loop:
 				memset(rusage, 0, sizeof(*rusage));
 			return (0);
 		}
-		if (((pr->ps_flags & PS_TRACED) || (options & WUNTRACED)) &&
+		if (((options & WUNTRACED) || (pr->ps_flags & PS_TRACED)) &&
 		    (pr->ps_flags & PS_WAITED) == 0 &&
 		    (pr->ps_flags & PS_STOPPED)) {
 			if ((options & WNOWAIT) == 0)
