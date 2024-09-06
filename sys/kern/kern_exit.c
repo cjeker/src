@@ -119,7 +119,6 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 	struct process *pr, *qr, *nqr;
 	struct rusage *rup;
 	struct timespec ts, pts;
-	int wakeparent = 0;
 
 	atomic_setbits_int(&p->p_flag, P_WEXIT);
 
@@ -173,7 +172,7 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 	}
 	if (pr->ps_flags & PS_STOPPING) {
 		if (--pr->ps_stopcnt == 0)
-			wakeparent = 1;
+			process_stopped(p);
 	}
 
 	/* proc is off ps_threads list so update accounting of process now */
@@ -197,9 +196,6 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 	}
 	mtx_leave(&pr->ps_mtx);
 
-	/* XXX because KERNEL_LOCK in ptsignal, grrrrr */
-	if (wakeparent)
-		process_stopped(p);
 
 	rup = pr->ps_ru;
 	if (rup == NULL) {
