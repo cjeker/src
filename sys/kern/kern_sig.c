@@ -829,13 +829,11 @@ trapsignal(struct proc *p, int signum, u_long trapno, int code,
 		 */
 		if (((pr->ps_flags & (PS_TRACED | PS_PPWAIT)) == PS_TRACED) &&
 		    signum != SIGKILL && (p->p_sigmask & mask) != 0) {
-			int wakeparent = 0;
 			mtx_enter(&pr->ps_mtx);
 			pr->ps_xsig = signum;
-			wakeparent = process_stop(p);
-			mtx_leave(&pr->ps_mtx);
-			if (wakeparent)
+			if (process_stop(p))
 				process_stopped(p);
+			mtx_leave(&pr->ps_mtx);
 			proc_stop(p);
 			signum = pr->ps_xsig;
 			pr->ps_xsig = 0;
@@ -1265,7 +1263,6 @@ out:
 	}
 
 	SCHED_UNLOCK();
-	mtx_leave(&pr->ps_mtx);
 
 	if (wakeparent) {
 		if ((pr->ps_pptr->ps_sigacts->ps_sigflags &
@@ -1355,13 +1352,11 @@ cursig(struct proc *p, struct sigctx *sctx)
 		 */
 		if (((pr->ps_flags & (PS_TRACED | PS_PPWAIT)) == PS_TRACED) &&
 		    signum != SIGKILL) {
-			int wakeparent = 0;
 			mtx_enter(&pr->ps_mtx);
 			pr->ps_xsig = signum;
-			wakeparent = process_stop(p);
-			mtx_leave(&pr->ps_mtx);
-			if (wakeparent)
+			if (process_stop(p))
 				process_stopped(p);
+			mtx_leave(&pr->ps_mtx);
 			proc_stop(p);
 
 			/*
@@ -1438,18 +1433,15 @@ cursig(struct proc *p, struct sigctx *sctx)
 			 * process group, ignore tty stop signals.
 			 */
 			if (prop & SA_STOP) {
-				int wakeparent = 0;
-
 				if (pr->ps_flags & PS_TRACED ||
 		    		    (pr->ps_pgrp->pg_jobc == 0 &&
 				    prop & SA_TTYSTOP))
 					break;	/* == ignore */
 				mtx_enter(&pr->ps_mtx);
 				pr->ps_xsig = signum;
-				wakeparent = process_stop(p);
-				mtx_leave(&pr->ps_mtx);
-				if (wakeparent)
+				if (process_stop(p))
 					process_stopped(p);
+				mtx_leave(&pr->ps_mtx);
 				proc_stop(p);
 				break;
 			} else if (prop & SA_IGNORE) {
@@ -1559,20 +1551,12 @@ process_stopped(struct proc *p)
 {
 	struct process *pr = p->p_p;
 
-	/*
-	 * XXX we need to call prsignal with KERNEL_LOCK() which
-	 * requires some hacks right now. Once ptsignal is changed
-	 * all of this becomes simpler again.
-	 */
-	/* XXX MUTEX_ASSERT_LOCKED(&pr->ps_mtx); */
+	MUTEX_ASSERT_LOCKED(&pr->ps_mtx);
 	atomic_setbits_int(&pr->ps_flags, PS_STOPPED);
 	atomic_clearbits_int(&pr->ps_flags, PS_STOPPING);
 
-	if ((pr->ps_pptr->ps_sigacts->ps_sigflags & SAS_NOCLDSTOP) == 0) {
-		KERNEL_LOCK();
+	if ((pr->ps_pptr->ps_sigacts->ps_sigflags & SAS_NOCLDSTOP) == 0)
 		prsignal(pr->ps_pptr, SIGCHLD);
-		KERNEL_UNLOCK();
-	}
 	wakeup(pr->ps_pptr);
 }
 
@@ -2077,23 +2061,25 @@ void
 userret(struct proc *p)
 {
 	struct sigctx ctx;
-	int signum, wakeparent = 0;
+	int signum;
 
 	KASSERT(!ISSET(p->p_flag, P_WEXIT));
 
+ again:
 	/* check if single thread execution is requested */
-	if (p->p_flag & P_SUSPSINGLE)
+	if (p->p_flag & P_SUSPSINGLE) {
 		single_thread_check(p, 0);
+		goto again;
+	}
 
 	/* check if process was stopped */
 	if (p->p_p->ps_flags & PS_STOPPING) {
 		mtx_enter(&p->p_p->ps_mtx);
 		if (--p->p_p->ps_stopcnt == 0)
-			wakeparent = 1;
-		mtx_leave(&p->p_p->ps_mtx);
-		if (wakeparent)
 			process_stopped(p);
+		mtx_leave(&p->p_p->ps_mtx);
 		proc_stop(p);
+		goto again;
 	}
 
 	/* send SIGPROF or SIGVTALRM if their timers interrupted this thread */
