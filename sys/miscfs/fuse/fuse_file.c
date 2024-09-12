@@ -35,7 +35,7 @@ fusefs_file_open(struct fusefs_mnt *fmp, struct fusefs_node *ip,
 	if (!fmp->sess_init)
 		return (0);
 
-	fbuf = fb_setup(0, ip->ufs_ino.i_number,
+	fbuf = fb_setup(0, ip->i_number,
 	    ((isdir) ? FBT_OPENDIR : FBT_OPEN), p);
 	fbuf->fb_io_flags = flags;
 
@@ -60,7 +60,7 @@ fusefs_file_close(struct fusefs_mnt *fmp, struct fusefs_node * ip,
 	int error = 0;
 
 	if (fmp->sess_init) {
-		fbuf = fb_setup(0, ip->ufs_ino.i_number,
+		fbuf = fb_setup(0, ip->i_number,
 		    ((isdir) ? FBT_RELEASEDIR : FBT_RELEASE), p);
 		fbuf->fb_io_fd  = ip->fufh[fufh_type].fh_id;
 		fbuf->fb_io_flags = flags;
