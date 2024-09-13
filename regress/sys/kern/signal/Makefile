@@ -2,6 +2,7 @@
 
 SUBDIR+= sigfpe siginfo_addr fpsig earlysig cansig sigaltstack_fork
 SUBDIR+= sig-stop
+SUBDIR+= sig-stop2
 SUBDIR+= siginfo-fault
 SUBDIR+= sigio
 SUBDIR+= signal-stress
