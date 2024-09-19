@@ -593,16 +593,11 @@ ptrace_kstate(struct proc *p, int req, pid_t pid, void *addr)
 		break;
 	case PT_GET_PROCESS_STATE:
 		mtx_enter(&tr->ps_mtx);
-		tr->ps_ptstat->pe_tid = 0;
-		if (ISSET(tr->ps_flags, PS_TRAPPED)) {
-			struct proc *t;
-			TAILQ_FOREACH(t, &tr->ps_threads, p_thr_link)
-				if (ISSET(t->p_flag, P_SUSPTRAPPED)) {
-					tr->ps_ptstat->pe_tid =
-					    t->p_tid + THREAD_PID_OFFSET;
-					break;
-				}
-		}
+		if (tr->ps_trapped != NULL)
+			tr->ps_ptstat->pe_tid = tr->ps_trapped->p_tid +
+			    THREAD_PID_OFFSET;
+		else
+			tr->ps_ptstat->pe_tid = 0;
 		mtx_leave(&tr->ps_mtx);
 		memcpy(addr, tr->ps_ptstat, sizeof *tr->ps_ptstat);
 		break;
@@ -777,7 +772,7 @@ static inline struct process *
 process_tprfind(pid_t tpid, struct proc **tp)
 {
 	struct process *tr;
-	struct proc *t = NULL;
+	struct proc *t;
 
 	if (tpid > THREAD_PID_OFFSET) {
 		t = tfind(tpid - THREAD_PID_OFFSET);
@@ -788,12 +783,9 @@ process_tprfind(pid_t tpid, struct proc **tp)
 		tr = prfind(tpid);
 		if (tr == NULL)
 			return NULL;
-		if (ISSET(tr->ps_flags, PS_TRAPPED)) {
-			TAILQ_FOREACH(t, &tr->ps_threads, p_thr_link)
-				if (ISSET(t->p_flag, P_SUSPTRAPPED))
-					break;
-		}
-		if (t == NULL)
+		if (tr->ps_trapped != NULL)
+			t = tr->ps_trapped;
+		else
 			t = TAILQ_FIRST(&tr->ps_threads);
 	}
 
