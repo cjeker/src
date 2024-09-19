@@ -442,16 +442,17 @@ struct proc {
 #define	P_TRACESINGLE	0x00001000	/* Ptrace: keep single threaded. */
 #define	P_WEXIT		0x00002000	/* Working on exiting. */
 #define	P_OWEUPC	0x00008000	/* Owe proc an addupc() at next ast. */
-#define	P_SUSPSINGLE	0x00080000	/* Need to stop for single threading. */
+#define	P_SUSPSINGLE	0x00010000	/* Need to stop for single threading. */
+#define	P_SUSPSIG	0x00020000	/* Stopped from signal. */
+#define	P_SUSPTRAPPED	0x00040000	/* Stopped for ptrace. */
 #define	P_THREAD	0x04000000	/* Only a thread, not a real process */
-#define	P_SUSPSIG	0x08000000	/* Stopped from signal. */
 #define P_CPUPEG	0x40000000	/* Do not move to another cpu. */
 
 #define	P_BITS \
     ("\20" "\01INKTR" "\02PROFPEND" "\03ALRMPEND" "\04SIGSUSPEND" \
      "\05CANTSLEEP" "\06WSLEEP" "\010SINTR" "\012SYSTEM" "\013TIMEOUT" \
-     "\015TRACESINGLE" "\016WEXIT" "\020OWEUPC" "\024SUSPSINGLE" \
-     "\033THREAD" "\034SUSPSIG" "\037CPUPEG")
+     "\015TRACESINGLE" "\016WEXIT" "\020OWEUPC" "\021SUSPSINGLE" \
+     "\022SUSPSIG" "\023SUSPTRAPPED" "\033THREAD" "\037CPUPEG")
 
 #define	THREAD_PID_OFFSET	100000
 
@@ -591,19 +592,18 @@ refreshcreds(struct proc *p)
 		dorefreshcreds(pr, p);
 }
 
-#define	SINGLE_SUSPEND	0x01	/* other threads to stop wherever they are */
-#define	SINGLE_UNWIND	0x02	/* other threads to unwind and stop */
-#define	SINGLE_EXIT	0x03	/* other threads to unwind and then exit */
+#define	SINGLE_UNWIND	0x01	/* other threads to unwind and stop */
+#define	SINGLE_EXIT	0x02	/* other threads to unwind and then exit */
 #define	SINGLE_MASK	0x0f
 /* extra flags for single_thread_set */
 #define	SINGLE_DEEP	0x10	/* call is in deep */
-#define	SINGLE_NOWAIT	0x20	/* do not wait for other threads to stop */
 
 int	single_thread_set(struct proc *, int);
 int	single_thread_wait(struct process *, int);
 void	single_thread_clear(struct proc *, int);
 int	single_thread_check(struct proc *, int);
 void	process_stopped(struct proc *);
+void	process_continue(struct proc *);
 
 void	child_return(void *);
 

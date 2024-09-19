@@ -469,6 +469,23 @@ sleep_signal_check(struct proc *p, int nostop)
 	struct sigctx ctx;
 	int err, sig;
 
+        /* check if process is supposed to stop while going to sleep */
+        if (ISSET(p->p_flag, P_SINTR) &&
+	    ISSET(p->p_p->ps_flags, PS_STOPPING)) {
+		mtx_enter(&p->p_p->ps_mtx);
+		if (ISSET(p->p_p->ps_flags, PS_STOPPING) &&
+		    !ISSET(p->p_flag, P_SUSPSIG)) {
+			if (--p->p_p->ps_stopcnt == 0)
+				process_stopped(p);
+			SCHED_LOCK();
+			atomic_setbits_int(&p->p_flag, P_SUSPSIG);
+			p->p_stat = SSTOP;
+			SCHED_UNLOCK();
+			mtx_leave(&p->p_p->ps_mtx);
+			return 0;
+		}
+		mtx_leave(&p->p_p->ps_mtx);
+	}
 	if ((err = single_thread_check(p, 1)) != 0)
 		return err;
 	if ((sig = cursig(p, &ctx, 1)) != 0) {
