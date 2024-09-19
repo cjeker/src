@@ -1484,15 +1484,22 @@ proc_trap(struct proc *p, int signum)
 		}
 		break;
 	}
+
 	pr->ps_xsig = signum;
+	pr->ps_trapped = p;
 	atomic_setbits_int(&p->p_flag, P_SUSPTRAPPED);
+
 	if (process_stop(p, PS_TRAPPED))
 		process_stopped(p);
 	mtx_leave(&pr->ps_mtx);
+
 	proc_stop(p, P_SUSPTRAPPED);
+
 	mtx_enter(&pr->ps_mtx);
 	signum = pr->ps_xsig;
 	pr->ps_xsig = 0;
+	pr->ps_trapped = NULL;
+
 	atomic_clearbits_int(&pr->ps_flags, PS_TRAPPED | PS_STOPPING);
 	if (!ISSET(p->p_flag, P_TRACESINGLE)) {
 		SCHED_LOCK();
@@ -1575,20 +1582,17 @@ process_continue(struct proc *p)
 {
 	struct process *pr = p->p_p;
 	struct proc *q;
-	int trapped = 0;
 
 	MUTEX_ASSERT_LOCKED(&pr->ps_mtx);
 
-	if (ISSET(pr->ps_flags, PS_TRAPPED))
-		trapped = P_SUSPTRAPPED;
 	atomic_clearbits_int(&pr->ps_flags,
 	    PS_WAITED | PS_STOPPED | PS_TRAPPED | PS_STOPPING);
 	atomic_setbits_int(&pr->ps_flags, PS_CONTINUED);
 
 	TAILQ_FOREACH(q, &pr->ps_threads, p_thr_link) {
-		if (!ISSET(q->p_flag, (P_SUSPSIG | trapped)))
+		if (!ISSET(q->p_flag, P_SUSPSIG))
 			continue;
-		atomic_clearbits_int(&q->p_flag, P_SUSPSIG | trapped);
+		atomic_clearbits_int(&q->p_flag, P_SUSPSIG);
 
 		/*
 		 * If the thread was only stopped by a signal then clearing
