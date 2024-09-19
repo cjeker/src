@@ -323,6 +323,7 @@ struct process {
 #define	PS_CONTINUED	0x20000000	/* Continued proc not yet waited for */
 #define	PS_STOPPED	0x40000000	/* Stopped process */
 #define	PS_TRAPPED	0x80000000	/* Stopped due to tracing event */
+#define	PS_REAPED	0xXXX00000	/* The process was reaped. */
 
 #define	PS_BITS \
     ("\20" "\01CONTROLT" "\02EXEC" "\03INEXEC" "\04EXITING" "\05SUGID" \
