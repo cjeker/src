@@ -495,13 +495,14 @@ proc_printit(struct proc *p, const char *modif,
 	    p->p_p->ps_flags, PS_BITS, p->p_flag, P_BITS);
 	(*pr)("    runpri=%u, usrpri=%u, slppri=%u, nice=%d\n",
 	    p->p_runpri, p->p_usrpri, p->p_slppri, p->p_p->ps_nice);
-	(*pr)("    wchan=%p, wmesg=%s, ps_single=%p scnt=%d ecnt=%d\n",
+	(*pr)("    wchan=%p, wmesg=%s, ps_single=%p scnt=%d ecnt=%d stcnt=%d\n",
 	    p->p_wchan, (p->p_wchan && p->p_wmesg) ?  p->p_wmesg : "",
-	    p->p_p->ps_single, p->p_p->ps_singlecnt, p->p_p->ps_exitcnt);
+	    p->p_p->ps_single, p->p_p->ps_singlecnt, p->p_p->ps_exitcnt,
+	    p->p_p->ps_stopcnt);
 	(*pr)("    forw=%p, list=%p,%p\n",
 	    TAILQ_NEXT(p, p_runq), p->p_list.le_next, p->p_list.le_prev);
-	(*pr)("    process=%p user=%p, vmspace=%p\n",
-	    p->p_p, p->p_addr, p->p_vmspace);
+	(*pr)("    process=%p proc=%p user=%p, vmspace=%p\n",
+	    p->p_p, p, p->p_addr, p->p_vmspace);
 	(*pr)("    estcpu=%u, cpticks=%d, pctcpu=%u.%u, "
 	    "user=%llu, sys=%llu, intr=%llu\n",
 	    p->p_estcpu, p->p_cpticks, p->p_pctcpu / 100, p->p_pctcpu % 100,
