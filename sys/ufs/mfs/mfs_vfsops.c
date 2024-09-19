@@ -189,7 +189,7 @@ mfs_start(struct mount *mp, int flags, struct proc *p)
 		 * EINTR/ERESTART.
 		 */
 		if (sleepreturn != 0) {
-			sig = cursig(p, &ctx);
+			sig = cursig(p, &ctx, 0);
 			if (vfs_busy(mp, VB_WRITE|VB_NOWAIT) ||
 			    dounmount(mp, (sig == SIGKILL) ? MNT_FORCE : 0, p))
 				atomic_clearbits_int(&p->p_siglist,

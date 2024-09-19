@@ -1288,14 +1288,14 @@ setsigctx(struct proc *p, int signum, struct sigctx *sctx)
  * they aren't returned.  This is checked after each entry to the system for
  * a syscall or trap. The normal call sequence is
  *
- *	while (signum = cursig(curproc, &ctx))
+ *	while (signum = cursig(curproc, &ctx, 0))
  *		postsig(signum, &ctx);
  *
  * Assumes that if the P_SINTR flag is set, we're holding both the
  * kernel and scheduler locks.
  */
 int
-cursig(struct proc *p, struct sigctx *sctx)
+cursig(struct proc *p, struct sigctx *sctx, int deep)
 {
 	struct process *pr = p->p_p;
 	int signum, mask, prop;
@@ -1329,6 +1329,14 @@ cursig(struct proc *p, struct sigctx *sctx)
 		 */
 		if (sctx->sig_ignore && (pr->ps_flags & PS_TRACED) == 0)
 			continue;
+
+		/*
+		 * If cursig is called during sleep setup, abort now
+		 * since the sleep will be aborted and cursig will be called
+		 * again in userret where all can be handled cleanly.
+		 */
+		if (deep)
+			goto keep;
 
 		/*
 		 * If traced, always stop, and stay stopped until released
@@ -2019,7 +2027,7 @@ sys___thrsigdivert(struct proc *p, void *v, register_t *retval)
 
 	dosigsuspend(p, p->p_sigmask &~ mask);
 	for (;;) {
-		si.si_signo = cursig(p, &ctx);
+		si.si_signo = cursig(p, &ctx, 0);
 		if (si.si_signo != 0) {
 			sigset_t smask = sigmask(si.si_signo);
 			if (smask & mask) {
@@ -2122,7 +2130,7 @@ userret(struct proc *p)
 	}
 
 	if (SIGPENDING(p) != 0) {
-		while ((signum = cursig(p, &ctx)) != 0)
+		while ((signum = cursig(p, &ctx, 0)) != 0)
 			postsig(p, signum, &ctx);
 	}
 
@@ -2136,7 +2144,7 @@ userret(struct proc *p)
 		p->p_sigmask = p->p_oldmask;
 		atomic_clearbits_int(&p->p_flag, P_SIGSUSPEND);
 
-		while ((signum = cursig(p, &ctx)) != 0)
+		while ((signum = cursig(p, &ctx, 0)) != 0)
 			postsig(p, signum, &ctx);
 	}
 
