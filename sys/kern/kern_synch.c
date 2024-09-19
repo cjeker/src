@@ -476,7 +476,7 @@ sleep_signal_check(struct proc *p)
 	}
 	if ((err = single_thread_check(p, 1)) != 0)
 		return err;
-	if ((sig = cursig(p, &ctx)) != 0) {
+	if ((sig = cursig(p, &ctx, 1)) != 0) {
 		if (ctx.sig_intr)
 			return EINTR;
 		else
