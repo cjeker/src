@@ -337,9 +337,9 @@ sleep_setup(const volatile void *ident, int prio, const char *wmesg)
 	if (p->p_flag & P_CANTSLEEP)
 		panic("sleep: %s failed insomnia", p->p_p->ps_comm);
 	if (ident == NULL)
-		panic("tsleep: no ident");
+		panic("sleep: no ident");
 	if (p->p_stat != SONPROC)
-		panic("tsleep: not SONPROC");
+		panic("sleep: not SONPROC");
 #endif
 	/* exiting processes are not allowed to catch signals */
 	if (p->p_flag & P_WEXIT)
@@ -401,13 +401,14 @@ sleep_finish(int timo, int do_sleep)
 		do_sleep = 0;
 	atomic_clearbits_int(&p->p_flag, P_WSLEEP);
 
+	if (p->p_stat == SSTOP)	/* force sleep if process is stopped */
+		do_sleep = 1;
 	if (do_sleep) {
 		KASSERT(p->p_stat == SSLEEP || p->p_stat == SSTOP);
 		p->p_ru.ru_nvcsw++;
 		mi_switch();
 	} else {
-		KASSERT(p->p_stat == SONPROC || p->p_stat == SSLEEP ||
-		    p->p_stat == SSTOP);
+		KASSERT(p->p_stat == SONPROC || p->p_stat == SSLEEP);
 		unsleep(p);
 		p->p_stat = SONPROC;
 	}
@@ -456,6 +457,23 @@ sleep_signal_check(struct proc *p)
 	struct sigctx ctx;
 	int err, sig;
 
+        /* check if process is supposed to stop while going to sleep */
+        if (ISSET(p->p_flag, P_SINTR) &&
+	    ISSET(p->p_p->ps_flags, PS_STOPPING)) {
+		mtx_enter(&p->p_p->ps_mtx);
+		if (ISSET(p->p_p->ps_flags, PS_STOPPING) &&
+		    !ISSET(p->p_flag, P_SUSPSIG)) {
+			if (--p->p_p->ps_stopcnt == 0)
+				process_stopped(p);
+			SCHED_LOCK();
+			atomic_setbits_int(&p->p_flag, P_SUSPSIG);
+			p->p_stat = SSTOP;
+			SCHED_UNLOCK();
+			mtx_leave(&p->p_p->ps_mtx);
+			return 0;
+		}
+		mtx_leave(&p->p_p->ps_mtx);
+	}
 	if ((err = single_thread_check(p, 1)) != 0)
 		return err;
 	if ((sig = cursig(p, &ctx)) != 0) {
