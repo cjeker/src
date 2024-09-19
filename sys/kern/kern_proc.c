@@ -504,8 +504,8 @@ proc_printit(struct proc *p, const char *modif,
 	    p->p_p->ps_single, p->p_p->ps_suspendcnt, p->p_p->ps_exitcnt);
 	(*pr)("    forw=%p, list=%p,%p\n",
 	    TAILQ_NEXT(p, p_runq), p->p_list.le_next, p->p_list.le_prev);
-	(*pr)("    process=%p user=%p, vmspace=%p\n",
-	    p->p_p, p->p_addr, p->p_vmspace);
+	(*pr)("    process=%p proc=%p user=%p, vmspace=%p\n",
+	    p->p_p, p, p->p_addr, p->p_vmspace);
 	(*pr)("    estcpu=%u, cpticks=%d, pctcpu=%u.%u, "
 	    "user=%llu, sys=%llu, intr=%llu\n",
 	    p->p_estcpu, p->p_cpticks, p->p_pctcpu / 100, p->p_pctcpu % 100,
