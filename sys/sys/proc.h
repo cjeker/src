@@ -190,6 +190,7 @@ struct process {
 	int	ps_siglist;		/* Signals pending for the process. */
 
 	struct	proc *ps_single;	/* [m] Thread for single-threading. */
+	struct	proc *ps_trapped;	/* [m] Thread trapped for ptrace. */
 	u_int	ps_singlecnt;		/* [m] Number of threads to suspend. */
 	u_int	ps_stopcnt;		/* [m] Number of threads to stop. */
 	u_int	ps_exitcnt;		/* [m] Number of threads in exit1. */
