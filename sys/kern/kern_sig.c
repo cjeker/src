@@ -1597,15 +1597,22 @@ proc_trap(struct proc *p, int signum)
 		}
 		break;
 	}
+
 	pr->ps_xsig = signum;
+	pr->ps_trapped = p;
 	atomic_setbits_int(&p->p_flag, P_SUSPTRAPPED);
+
 	if (process_stop(p, PS_TRAPPED))
 		process_stopped(p);
 	mtx_leave(&pr->ps_mtx);
+
 	proc_stop(p, P_SUSPTRAPPED);
+
 	mtx_enter(&pr->ps_mtx);
 	signum = pr->ps_xsig;
 	pr->ps_xsig = 0;
+	pr->ps_trapped = NULL;
+
 	atomic_clearbits_int(&pr->ps_flags, PS_TRAPPED | PS_STOPPING);
 	if (!ISSET(p->p_flag, P_TRACESINGLE)) {
 		SCHED_LOCK();
