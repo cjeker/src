@@ -416,11 +416,6 @@ struct proclist deadproc = LIST_HEAD_INITIALIZER(deadproc);
 void
 exit2(struct proc *p)
 {
-	/* account the remainder of time spent in exit1() */
-	mtx_enter(&p->p_p->ps_mtx);
-	tuagg_add_process(p->p_p, p);
-	mtx_leave(&p->p_p->ps_mtx);
-
 	mtx_enter(&deadproc_mutex);
 	LIST_INSERT_HEAD(&deadproc, p, p_hash);
 	mtx_leave(&deadproc_mutex);
@@ -462,6 +457,11 @@ reaper(void *arg)
 
 		WITNESS_THREAD_EXIT(p);
 
+		/* account the remainder of time spent in exit1() */
+		mtx_enter(&p->p_p->ps_mtx);
+		tuagg_add_process(p->p_p, p);
+		mtx_leave(&p->p_p->ps_mtx);
+
 		/*
 		 * Free the VM resources we're still holding on to.
 		 * We must do this from a valid thread because doing
@@ -482,6 +482,7 @@ reaper(void *arg)
 			KERNEL_LOCK();
 			if ((pr->ps_flags & PS_NOZOMBIE) == 0) {
 				/* Process is now a true zombie. */
+				atomic_clearbits_int(&pr->ps_flags, PS_WAITED);
 				atomic_setbits_int(&pr->ps_flags, PS_ZOMBIE);
 			}
 
@@ -492,10 +493,10 @@ reaper(void *arg)
 				/* Post SIGCHLD and wake up parent. */
 				prsignal(pr->ps_pptr, SIGCHLD);
 				wakeup(pr->ps_pptr);
-			} else {
-				/* No one will wait for us, just zap it. */
-				process_zap(pr);
 			}
+
+			atomic_setbits_int(&pr->ps_flags, PS_REAPED);
+			process_zap(pr);
 			KERNEL_UNLOCK();
 		}
 	}
@@ -522,11 +523,15 @@ loop:
 			mtx_leave(&pr->ps_mtx);
 			continue;
 		}
-		nfound++;
-		if ((options & WEXITED) && (pr->ps_flags & PS_ZOMBIE)) {
+		/* do not count dead and collected processes */
+		if ((pr->ps_flags & PS_ZOMBIE) && (pr->ps_flags & PS_WAITED)) {
 			mtx_leave(&pr->ps_mtx);
-			if ((options & WNOWAIT) == 0)
-				atomic_setbits_int(&pr->ps_flags, PS_WAITED);
+			continue;
+		}
+		nfound++;
+		if ((options & WEXITED) && (pr->ps_flags & PS_ZOMBIE) &&
+		    (pr->ps_flags & PS_WAITED) == 0) {
+			mtx_leave(&pr->ps_mtx);
 			*retval = pr->ps_pid;
 			if (info != NULL) {
 				info->si_pid = pr->ps_pid;
@@ -549,8 +554,10 @@ loop:
 				    pr->ps_xsig);
 			if (rusage != NULL)
 				memcpy(rusage, pr->ps_ru, sizeof(*rusage));
-			if ((options & WNOWAIT) == 0)
+			if ((options & WNOWAIT) == 0) {
+				atomic_setbits_int(&pr->ps_flags, PS_WAITED);
 				proc_finish_wait(q, pr);
+			}
 			return (0);
 		}
 		if ((options & WTRAPPED) && (pr->ps_flags & PS_TRACED) &&
@@ -753,7 +760,7 @@ proc_finish_wait(struct proc *waiter, struct process *pr)
 	if (pr->ps_opptr != NULL && (pr->ps_opptr != pr->ps_pptr)) {
 		tr = pr->ps_opptr;
 		pr->ps_opptr = NULL;
-		atomic_clearbits_int(&pr->ps_flags, PS_TRACED);
+		atomic_clearbits_int(&pr->ps_flags, PS_TRACED | PS_WAITED);
 		process_reparent(pr, tr);
 		mtx_leave(&pr->ps_mtx);
 		prsignal(tr, SIGCHLD);
@@ -831,6 +838,14 @@ process_zap(struct process *pr)
 {
 	struct vnode *otvp;
 	struct proc *p = pr->ps_mainproc;
+
+	/*
+	 * Check if both dowait6() and reaper() called process_zap().
+	 */
+	if (!ISSET(pr->ps_flags, PS_REAPED) ||
+	    !(ISSET(pr->ps_flags, PS_NOZOMBIE) ||
+	    (ISSET(pr->ps_flags, PS_ZOMBIE) && ISSET(pr->ps_flags, PS_WAITED))))
+		return;
 
 	/*
 	 * Finally finished with old proc entry.

@@ -305,6 +305,7 @@ struct process {
 #define	PS_CHROOT	0x01000000	/* Process is chrooted */
 #define	PS_NOBTCFI	0x02000000	/* No Branch Target CFI */
 #define	PS_ITIMER	0x04000000	/* Virtual interval timers running */
+#define	PS_REAPED	0x08000000	/* The process was reaped. */
 #define	PS_CONTINUED	0x10000000	/* Continued proc not yet waited for */
 #define	PS_STOPPED	0x20000000	/* Stopped process */
 #define	PS_TRAPPED	0x40000000	/* Stopped due to tracing event */
@@ -315,8 +316,8 @@ struct process {
      "\013WAITED" "\014COREDUMP" "\015SINGLEEXIT" "\016SINGLEUNWIND" \
      "\017NOZOMBIE" "\020STOPPING" "\021SYSTEM" "\022EMBRYO" "\023ZOMBIE" \
      "\024NOBROADCASTKILL" "\025PLEDGE" "\026WXNEEDED" "\027EXECPLEDGE" \
-     "\030ORPHAN" "\031CHROOT" "\032NOBTCFI" "\033ITIMER" "\035CONTINUED" \
-     "\036STOPPED" "\037TRAPPED")
+     "\030ORPHAN" "\031CHROOT" "\032NOBTCFI" "\033ITIMER" "\034REAPED" \
+     "\035CONTINUED" "\036STOPPED" "\037TRAPPED")
 
 struct kcov_dev;
 struct lock_list_entry;
