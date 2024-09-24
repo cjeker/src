@@ -125,7 +125,7 @@ cpu_fork(struct proc *p1, struct proc *p2, void *stack, void *tcb,
 }
 
 void
-cpu_exit(struct proc *p)
+cpu_proc_cleanup(struct proc *p)
 {
 	/* If we were using the FPU, forget about it. */
 	if (p->p_addr->u_pcb.pcb_fpcpu != NULL)
