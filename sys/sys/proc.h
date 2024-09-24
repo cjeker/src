@@ -592,7 +592,7 @@ __dead void exit1(struct proc *, int, int, int);
 void	exit2(struct proc *);
 void	cpu_fork(struct proc *_curp, struct proc *_child, void *_stack,
 	    void *_tcb, void (*_func)(void *), void *_arg);
-void	cpu_exit(struct proc *);
+void	cpu_proc_cleanup(struct proc *);
 void	process_initialize(struct process *, struct proc *);
 int	fork1(struct proc *_curp, int _flags, void (*_func)(void *),
 	    void *_arg, register_t *_retval, struct proc **_newprocp);

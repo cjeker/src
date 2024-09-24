@@ -222,10 +222,8 @@ sched_exit(struct proc *p)
 	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
 
 	TAILQ_INSERT_TAIL(&spc->spc_deadproc, p, p_runq);
-
 	tuagg_add_runtime();
 
-	KERNEL_ASSERT_LOCKED();
 	sched_toidle();
 }
 

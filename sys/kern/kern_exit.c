@@ -231,6 +231,8 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 
 		unveil_destroy(pr);
 
+		KERNEL_UNLOCK();
+
 		free(pr->ps_pin.pn_pins, M_PINSYSCALL,
 		    pr->ps_pin.pn_npins * sizeof(u_int));
 		free(pr->ps_libcpin.pn_pins, M_PINSYSCALL,
@@ -263,6 +265,14 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 
 	p->p_fd = NULL;		/* zap the thread's copy */
 
+	cpu_proc_cleanup(p);
+
+	if ((p->p_flag & P_THREAD) == 0)
+		/* Release the rest of the process's vmspace */
+		uvm_exit(pr);
+	else
+		p->p_vmspace = NULL;
+
 	/* Release the thread's read reference of resource limit structure. */
 	if (p->p_limit != NULL) {
 		struct plimit *limit;
@@ -283,12 +293,21 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 	/*
 	 * NOTE: WE ARE NO LONGER ALLOWED TO SLEEP!
 	 */
+	KERNEL_LOCK();
 	p->p_stat = SDEAD;
 
 	LIST_REMOVE(p, p_hash);
 	LIST_REMOVE(p, p_list);
 
+	/* add thread's accumulated rusage into the process's total */
+	ruadd(rup, &p->p_ru);
+
+	/* clear %cpu usage now that process is off allproc list */
+	p->p_pctcpu = 0;
+
 	if ((p->p_flag & P_THREAD) == 0) {
+		int wakeinit = 0;
+
 		LIST_REMOVE(pr, ps_hash);
 		LIST_REMOVE(pr, ps_list);
 
@@ -307,11 +326,7 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 		 * Reparent children to their original parent, in case
 		 * they were being traced, or to init(8).
 		 */
-		qr = LIST_FIRST(&pr->ps_children);
-		if (qr)		/* only need this if any child is S_ZOMB */
-			wakeup(initprocess);
-		for (; qr != NULL; qr = nqr) {
-			nqr = LIST_NEXT(qr, ps_sibling);
+		LIST_FOREACH_SAFE(qr, &pr->ps_children, ps_sibling, nqr) {
 			/*
 			 * Traced processes are killed since their
 			 * existence means someone is screwing up.
@@ -321,22 +336,16 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 			    !(qr->ps_flags & PS_EXITING)) {
 				process_untrace(qr);
 				mtx_leave(&qr->ps_mtx);
-
-				/*
-				 * If single threading is active,
-				 * direct the signal to the active
-				 * thread to avoid deadlock.
-				 */
-				if (qr->ps_single)
-					ptsignal(qr->ps_single, SIGKILL,
-					    STHREAD);
-				else
-					prsignal(qr, SIGKILL);
+				prsignal(qr, SIGKILL);
 			} else {
 				process_reparent(qr, initprocess);
+				if (qr->ps_flags & PS_ZOMBIE)
+					wakeinit = 1;
 				mtx_leave(&qr->ps_mtx);
 			}
 		}
+		if (wakeinit)	/* only need this if any child is PS_ZOMBIE */
+			wakeup(initprocess);
 
 		/*
 		 * Make sure orphans won't remember the exiting process.
@@ -348,17 +357,14 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 			process_clear_orphan(qr);
 			mtx_leave(&qr->ps_mtx);
 		}
-	}
 
-	/* add thread's accumulated rusage into the process's total */
-	ruadd(rup, &p->p_ru);
+		KERNEL_UNLOCK();
+		mtx_enter(&pr->ps_mtx);
 
-	/*
-	 * clear %cpu usage during swap
-	 */
-	p->p_pctcpu = 0;
+		/* update runtime one last time */
+		tuagg_add_runtime();
+		tuagg_add_process(pr, p);
 
-	if ((p->p_flag & P_THREAD) == 0) {
 		/*
 		 * Final thread has died, so add on our children's rusage
 		 * and calculate the total times.
@@ -375,19 +381,28 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 		 * we can wake our original parent to possibly unblock
 		 * wait4() to return ECHILD.
 		 */
-		mtx_enter(&pr->ps_mtx);
 		if (pr->ps_flags & PS_NOZOMBIE) {
 			struct process *ppr = pr->ps_pptr;
 			process_reparent(pr, initprocess);
 			atomic_setbits_int(&ppr->ps_flags, PS_WAITEVENT);
 			wakeup(ppr);
+		} else {
+			/* Process is now a true zombie. */
+			atomic_clearbits_int(&pr->ps_flags, PS_WAITED);
+			atomic_setbits_int(&pr->ps_flags, PS_ZOMBIE);
 		}
 		mtx_leave(&pr->ps_mtx);
-	}
 
-	/* just a thread? check if last one standing. */
-	if (p->p_flag & P_THREAD) {
+		/* Notify listeners of our demise. */
+		if (pr->ps_flags & PS_ZOMBIE) {
+			/* Post SIGCHLD and wake up parent. */
+			prsignal(pr->ps_pptr, SIGCHLD);
+			wakeup(pr->ps_pptr);
+		}
+	} else {
+		/* just a thread: check if last one standing. */
 		/* scheduler_wait_hook(pr->ps_mainproc, p); XXX */
+		KERNEL_UNLOCK();
 		mtx_enter(&pr->ps_mtx);
 		pr->ps_exitcnt--;
 		if (pr->ps_threadcnt + pr->ps_exitcnt == 1)
@@ -479,46 +494,27 @@ reaper(void *arg)
 
 		WITNESS_THREAD_EXIT(p);
 
-		/* account the remainder of time spent in exit1() */
-		mtx_enter(&p->p_p->ps_mtx);
-		tuagg_add_process(p->p_p, p);
-		mtx_leave(&p->p_p->ps_mtx);
-
 		/*
 		 * Free the VM resources we're still holding on to.
 		 * We must do this from a valid thread because doing
 		 * so may block.
 		 */
 		uvm_uarea_free(p);
-		p->p_vmspace = NULL;		/* zap the thread's copy */
 
 		if (p->p_flag & P_THREAD) {
 			/* Just a thread */
+
+			/* account the remainder of time spent in exit1() */
+			mtx_enter(&p->p_p->ps_mtx);
+			tuagg_add_process(p->p_p, p);
+			mtx_leave(&p->p_p->ps_mtx);
+
 			proc_free(p);
 		} else {
 			struct process *pr = p->p_p;
-
-			/* Release the rest of the process's vmspace */
-			uvm_exit(pr);
+			knote_processexit(pr);	/* XXX rwlock can sleep */
 
 			KERNEL_LOCK();
-			if ((pr->ps_flags & PS_NOZOMBIE) == 0) {
-				/* Process is now a true zombie. */
-				atomic_clearbits_int(&pr->ps_flags, PS_WAITED);
-				atomic_setbits_int(&pr->ps_flags, PS_ZOMBIE);
-			}
-
-			/* Notify listeners of our demise and clean up. */
-			knote_processexit(pr);
-
-			if (pr->ps_flags & PS_ZOMBIE) {
-				/* Post SIGCHLD and wake up parent. */
-				prsignal(pr->ps_pptr, SIGCHLD);
-				atomic_setbits_int(&pr->ps_pptr->ps_flags,
-				    PS_WAITEVENT);
-				wakeup(pr->ps_pptr);
-			}
-
 			atomic_setbits_int(&pr->ps_flags, PS_REAPED);
 			process_zap(pr);
 			KERNEL_UNLOCK();

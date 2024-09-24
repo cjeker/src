@@ -329,10 +329,16 @@ uvm_purge(void)
 void
 uvm_exit(struct process *pr)
 {
-	struct vmspace *vm = pr->ps_vmspace;
+	struct vmspace *ovm = pr->ps_vmspace;
+	struct proc *p = curproc;
+	int s;
 
-	pr->ps_vmspace = NULL;
-	uvmspace_free(vm);
+	KASSERT(p == pr->ps_mainproc);
+
+	if (__predict_false(ovm == proc0.p_vmspace))
+		return;
+
+	uvmspace_free(ovm);
 }
 
 /*
