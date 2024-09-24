@@ -269,24 +269,14 @@ fpusave_proc(struct proc *p, int save)
 #endif
 }
 
-/*
- * cpu_exit is called as the last action during exit.
- *
- * We clean up a little and then call sched_exit() with the old proc
- * as an argument.  sched_exit() schedules the old vmspace and stack
- * to be freed, then selects a new process to run.
- */
 void
-cpu_exit(struct proc *p)
+cpu_proc_cleanup(struct proc *p)
 {
 	if (p->p_md.md_fpstate != NULL) {
 		fpusave_proc(p, 0);
 		free(p->p_md.md_fpstate, M_SUBPROC, sizeof(struct fpstate));
 		p->p_md.md_fpstate = NULL;
 	}
-
-	pmap_deactivate(p);
-	sched_exit(p);
 }
 
 
