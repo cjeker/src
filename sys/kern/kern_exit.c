@@ -247,15 +247,19 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 		 */
 		if (pr->ps_pptr->ps_sigacts->ps_sigflags & SAS_NOCLDWAIT)
 			atomic_setbits_int(&pr->ps_flags, PS_NOZOMBIE);
-
-		/* Release the rest of the process's vmspace */
-		uvm_exit(pr);
 	} else {
 		KERNEL_UNLOCK();
 	}
 
 	p->p_fd = NULL;		/* zap the thread's copy */
-	p->p_vmspace = NULL;
+
+	cpu_proc_cleanup(p);
+
+	if ((p->p_flag & P_THREAD) == 0)
+		/* Release the rest of the process's vmspace */
+		uvm_exit(pr);
+	else
+		p->p_vmspace = NULL;
 
 	/* Release the thread's read reference of resource limit structure. */
 	if (p->p_limit != NULL) {
@@ -401,12 +405,11 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 	 * called to schedule those resources to be released by the
 	 * reaper thread.
 	 *
-	 * Note that cpu_exit() will end with a call equivalent to
-	 * cpu_switch(), finishing our execution (pun intended).
+	 * Note that sched_exit() will end with a call equivalent to
+	 * cpu_switchto(), finishing our execution (pun intended).
 	 */
-	KERNEL_LOCK();
-	cpu_exit(p);
-	panic("cpu_exit returned");
+	sched_exit(p);
+	panic("sched_exit returned");
 }
 
 /*
