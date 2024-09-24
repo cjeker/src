@@ -152,13 +152,10 @@ cpu_switch_prepare(struct proc *oproc, struct proc *nproc)
 }
 
 void
-cpu_exit(struct proc *p)
+cpu_proc_cleanup(struct proc *p)
 {
 	if (p->p_md.md_flags & MDP_STEP)
 		_reg_write_2(SH_(BBRB), 0);
-
-	pmap_deactivate(p);
-	sched_exit(p);
 }
 
 #ifndef P1_STACK
