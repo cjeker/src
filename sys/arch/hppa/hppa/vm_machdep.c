@@ -124,16 +124,13 @@ cpu_fork(struct proc *p1, struct proc *p2, void *stack, void *tcb,
 }
 
 void
-cpu_exit(struct proc *p)
+cpu_proc_cleanup(struct proc *p)
 {
 	struct pcb *pcb = &p->p_addr->u_pcb;
 
 	fpu_proc_flush(p);
 
 	pool_put(&hppa_fppl, pcb->pcb_fpstate);
-
-	pmap_deactivate(p);
-	sched_exit(p);
 }
 
 struct kmem_va_mode kv_physwait = {

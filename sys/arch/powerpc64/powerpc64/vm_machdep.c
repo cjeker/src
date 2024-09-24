@@ -113,17 +113,9 @@ cpu_fork(struct proc *p1, struct proc *p2, void *stack, void *tcb,
 	pcb->pcb_sp = (register_t)sf;
 }
 
-/*
- * cpu_exit is called as the last action during exit.
- *
- * We clean up a little and then call sched_exit() with the old proc as an
- * argument.
- */
 void
-cpu_exit(struct proc *p)
+cpu_proc_cleanup(struct proc *p)
 {
-	pmap_deactivate(p);
-	sched_exit(p);
 }
 
 struct kmem_va_mode kv_physwait = {

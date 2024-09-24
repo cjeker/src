@@ -129,17 +129,8 @@ cpu_fork(struct proc *p1, struct proc *p2, void *stack, void *tcb,
 	pcb->pcb_sp = (int)stktop2;
 }
 
-/*
- * cpu_exit is called as the last action during exit.
- * We release the address space and machine-dependent resources,
- * including the memory for the user structure and kernel stack.
- *
- * Since we don't have curproc anymore, we cannot sleep, and therefore
- * this is at least incorrect for the multiprocessor version.
- * Not sure whether we can get away with this in the single proc version.		XXX
- */
 void
-cpu_exit(struct proc *p)
+cpu_proc_cleanup(struct proc *p)
 {
 	struct cpu_info *ci = curcpu();
 #ifdef ALTIVEC
@@ -157,9 +148,6 @@ cpu_exit(struct proc *p)
 	if (pcb->pcb_vr != NULL)
 		pool_put(&ppc_vecpl, pcb->pcb_vr);
 #endif /* ALTIVEC */
-	
-	pmap_deactivate(p);
-	sched_exit(p);
 }
 
 struct kmem_va_mode kv_physwait = {

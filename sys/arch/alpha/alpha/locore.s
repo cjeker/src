@@ -653,7 +653,7 @@ LEAF(cpu_switchto, 2)
 	 * We don't deactivate if we came here from sched_exit
 	 * (old pmap no longer exists; vmspace has been freed).
 	 * oldproc will be NULL in this case.  We have actually
-	 * taken care of calling pmap_deactivate() in cpu_exit(),
+	 * taken care of calling pmap_deactivate() in exit1(),
 	 * before the vmspace went away.
 	 */
 	beq	s0, 2f
