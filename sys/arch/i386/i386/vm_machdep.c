@@ -103,18 +103,14 @@ cpu_fork(struct proc *p1, struct proc *p2, void *stack, void *tcb,
 	pcb->pcb_ebp = 0;
 }
 
-/*
- * cpu_exit is called as the last action during exit.
- */
 void
-cpu_exit(struct proc *p)
+cpu_proc_cleanup(struct proc *p)
 {
 #if NNPX > 0
 	/* If we were using the FPU, forget about it. */
 	if (p->p_addr->u_pcb.pcb_fpcpu != NULL)
 		npxsave_proc(p, 0);
 #endif
-	sched_exit(p);
 }
 
 /*
