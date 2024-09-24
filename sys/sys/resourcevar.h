@@ -67,6 +67,7 @@ void	 addupc_task(struct proc *, u_long, u_int);
 struct clockrequest;
 void	 profclock(struct clockrequest *, void *, void *);
 void	 tuagg_add_process(struct process *, struct proc *);
+void	 tuagg_add_runtime(void);
 struct tusage;
 void	 tuagg_get_proc(struct tusage *, struct proc *);
 void	 tuagg_get_process(struct tusage *, struct process *);

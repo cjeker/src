@@ -344,7 +344,6 @@ mi_switch(void)
 	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
 	struct proc *p = curproc;
 	struct proc *nextproc;
-	struct timespec ts;
 	int oldipl;
 #ifdef MULTIPROCESSOR
 	int hold_count;
@@ -368,22 +367,7 @@ mi_switch(void)
 	 * Compute the amount of time during which the current
 	 * process was running, and add that to its total so far.
 	 */
-	nanouptime(&ts);
-	if (timespeccmp(&ts, &spc->spc_runtime, <)) {
-#if 0
-		printf("uptime is not monotonic! "
-		    "ts=%lld.%09lu, runtime=%lld.%09lu\n",
-		    (long long)tv.tv_sec, tv.tv_nsec,
-		    (long long)spc->spc_runtime.tv_sec,
-		    spc->spc_runtime.tv_nsec);
-#endif
-		timespecclear(&ts);
-	} else {
-		timespecsub(&ts, &spc->spc_runtime, &ts);
-	}
-	tu_enter(&p->p_tu);
-	timespecadd(&p->p_tu.tu_runtime, &ts, &p->p_tu.tu_runtime);
-	tu_leave(&p->p_tu);
+	tuagg_add_runtime();
 
 	/* Stop any optional clock interrupts. */
 	if (ISSET(spc->spc_schedflags, SPCF_ITIMER)) {
