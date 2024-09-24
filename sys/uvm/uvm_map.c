@@ -138,7 +138,6 @@ int			 uvm_map_pageable_wire(struct vm_map*,
 			    vaddr_t, vaddr_t, int);
 void			 uvm_map_setup_entries(struct vm_map*);
 void			 uvm_map_setup_md(struct vm_map*);
-void			 uvm_map_teardown(struct vm_map*);
 void			 uvm_map_vmspace_update(struct vm_map*,
 			    struct uvm_map_deadq*, int);
 void			 uvm_map_kmem_grow(struct vm_map*,
@@ -2490,6 +2489,8 @@ uvm_map_teardown(struct vm_map *map)
 		/* Update wave-front. */
 		entry = TAILQ_NEXT(entry, dfree.deadq);
 	}
+	/* reinit RB tree since the above removal leaves the tree corrupted */
+	RBT_INIT(uvm_map_addr, &map->addr);
 
 #ifdef VMMAP_DEBUG
 	numt = numq = 0;

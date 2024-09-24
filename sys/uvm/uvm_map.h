@@ -359,6 +359,7 @@ void		uvm_unmap(struct vm_map *, vaddr_t, vaddr_t);
 void		uvm_unmap_detach(struct uvm_map_deadq *, int);
 int		uvm_unmap_remove(struct vm_map*, vaddr_t, vaddr_t,
 		    struct uvm_map_deadq *, boolean_t, boolean_t, boolean_t);
+void		uvm_map_teardown(struct vm_map*);
 void		uvm_map_set_uaddr(struct vm_map*, struct uvm_addr_state**,
 		    struct uvm_addr_state*);
 int		uvm_map_mquery(struct vm_map*, vaddr_t*, vsize_t, voff_t, int);
