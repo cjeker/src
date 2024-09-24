@@ -341,6 +341,29 @@ uvm_exit(struct process *pr)
 	uvmspace_free(ovm);
 }
 
+void
+uvm_purge(struct process *pr)
+{
+	struct vmspace *vm = pr->ps_vmspace;
+
+	/* only proc0 uses shared vm space */
+	if (atomic_load_int(&vm->vm_refcnt) != 1)
+		return;
+
+#ifdef SYSVSHM
+	/* Get rid of any SYSV shared memory segments. */
+	if (vm->vm_shm != NULL) {
+		KERNEL_LOCK();
+		shmexit(vm);
+		KERNEL_UNLOCK();
+	}
+#endif
+
+//	pmap_remove(vm->vm_map.pmap, 0, VM_MAXUSER_ADDRESS);
+
+	uvm_map_teardown(&vm->vm_map);
+}
+
 /*
  * uvm_init_limit: init per-process VM limits
  *

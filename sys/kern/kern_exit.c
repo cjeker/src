@@ -238,6 +238,8 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 		free(pr->ps_libcpin.pn_pins, M_PINSYSCALL,
 		    pr->ps_libcpin.pn_npins * sizeof(u_int));
 
+		uvm_purge(pr);
+
 		/*
 		 * If parent has the SAS_NOCLDWAIT flag set, we're not
 		 * going to become a zombie.
@@ -512,6 +514,9 @@ reaper(void *arg)
 			proc_free(p);
 		} else {
 			struct process *pr = p->p_p;
+
+			/* Release the rest of the process's vmspace */
+			uvm_exit(pr);
 			knote_processexit(pr);	/* XXX rwlock can sleep */
 
 			KERNEL_LOCK();
