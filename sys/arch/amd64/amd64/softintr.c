@@ -37,6 +37,7 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
+#include <sys/tracepoint.h>
 
 #include <machine/intr.h>
 
@@ -82,6 +83,8 @@ softintr_dispatch(int which)
 	struct x86_soft_intrhand *sih;
 	int floor;
 
+	LLTRACE_CPU(ci, lltrace_intr_enter, LLTRACE_INTR_T_SW, which);
+
 	floor = ci->ci_handled_intr_level;
 	ci->ci_handled_intr_level = ci->ci_ilevel;
 
@@ -99,12 +102,15 @@ softintr_dispatch(int which)
 		uvmexp.softs++;
 
 		mtx_leave(&si->softintr_lock);
-
+		LLTRACE_CPU(ci, lltrace_fn_enter, sih->sih_fn);
 		(*sih->sih_fn)(sih->sih_arg);
+		LLTRACE_CPU(ci, lltrace_fn_leave, sih->sih_fn);
 	}
 	KERNEL_UNLOCK();
 
 	ci->ci_handled_intr_level = floor;
+
+	LLTRACE_CPU(ci, lltrace_intr_leave, LLTRACE_INTR_T_SW, which);
 }
 
 /*
