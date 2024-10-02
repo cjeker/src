@@ -25,6 +25,7 @@
 #include <sys/witness.h>
 #include <sys/mutex.h>
 #include <sys/pclock.h>
+#include <sys/tracepoint.h>
 
 #include <ddb/db_output.h>
 
@@ -158,6 +159,7 @@ __mp_lock(struct __mp_lock *mpl)
 {
 	struct __mp_lock_cpu *cpu = &mpl->mpl_cpus[cpu_number()];
 	unsigned long s;
+	unsigned int depth;
 
 #ifdef WITNESS
 	if (!__mp_lock_held(mpl, curcpu()))
@@ -165,15 +167,22 @@ __mp_lock(struct __mp_lock *mpl)
 		    LOP_EXCLUSIVE | LOP_NEWORDER, NULL);
 #endif
 
+
 	s = intr_disable();
-	if (cpu->mplc_depth++ == 0)
+	depth = cpu->mplc_depth++;
+	if (depth == 0) {
+		LLTRACE(lltrace_lock, mpl, LLTRACE_LK_K, LLTRACE_LK_A_START);
 		cpu->mplc_ticket = atomic_inc_int_nv(&mpl->mpl_users);
+	}
 	intr_restore(s);
 
 	__mp_lock_spin(mpl, cpu->mplc_ticket);
 	membar_enter_after_atomic();
 
 	WITNESS_LOCK(&mpl->mpl_lock_obj, LOP_EXCLUSIVE);
+
+	if (depth == 0)
+		LLTRACE(lltrace_lock, mpl, LLTRACE_LK_K, LLTRACE_LK_A_EXCL);
 }
 
 void
@@ -193,6 +202,7 @@ __mp_unlock(struct __mp_lock *mpl)
 
 	s = intr_disable();
 	if (--cpu->mplc_depth == 0) {
+		LLTRACE(lltrace_lock, mpl, LLTRACE_LK_K, LLTRACE_LK_R_EXCL);
 		membar_exit();
 		mpl->mpl_ticket++;
 	}
@@ -208,6 +218,8 @@ __mp_release_all(struct __mp_lock *mpl)
 #ifdef WITNESS
 	int i;
 #endif
+
+	LLTRACE(lltrace_lock, mpl, LLTRACE_LK_K, LLTRACE_LK_R_EXCL);
 
 	s = intr_disable();
 	rv = cpu->mplc_depth;
@@ -578,6 +590,7 @@ mtx_leave(struct mutex *mtx)
 		return;
 
 	MUTEX_ASSERT_LOCKED(mtx);
+	LLTRACE(lltrace_lock, mtx, LLTRACE_LK_MTX, LLTRACE_LK_R_EXCL);
 	WITNESS_UNLOCK(MUTEX_LOCK_OBJECT(mtx), LOP_EXCLUSIVE);
 
 #ifdef DIAGNOSTIC
