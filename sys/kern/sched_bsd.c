@@ -352,6 +352,8 @@ mi_switch(void)
 	int hold_count;
 #endif
 
+	LLTRACE(lltrace_sched_enter);
+
 	KASSERT(p->p_stat != SONPROC);
 
 	SCHED_ASSERT_LOCKED();
@@ -394,14 +396,19 @@ mi_switch(void)
 		uvmexp.swtch++;
 		TRACEPOINT(sched, off__cpu, nextproc->p_tid + THREAD_PID_OFFSET,
 		    nextproc->p_p->ps_pid);
+		LLTRACE(lltrace_switch, p, nextproc);
 		cpu_switchto(p, nextproc);
 		TRACEPOINT(sched, on__cpu, NULL);
+
+		//LLTRACE(lltrace_pidname, p);
 	} else {
 		TRACEPOINT(sched, remain__cpu, NULL);
 		p->p_stat = SONPROC;
 	}
 
 	clear_resched(curcpu());
+
+	LLTRACE(lltrace_sched_leave);
 
 	SCHED_ASSERT_LOCKED();
 
