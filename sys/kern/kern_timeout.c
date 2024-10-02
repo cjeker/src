@@ -35,6 +35,7 @@
 #include <sys/queue.h>			/* _Q_INVALIDATE */
 #include <sys/sysctl.h>
 #include <sys/witness.h>
+#include <sys/tracepoint.h>
 
 #ifdef DDB
 #include <machine/db_machdep.h>
@@ -702,7 +703,9 @@ timeout_run(struct timeout_ctx *tctx, struct timeout *to)
 #if NKCOV > 0
 	kcov_remote_enter(KCOV_REMOTE_COMMON, kcov_process);
 #endif
+	LLTRACE(lltrace_fn_enter, fn);
 	fn(arg);
+	LLTRACE(lltrace_fn_leave, fn);
 #if NKCOV > 0
 	kcov_remote_leave(KCOV_REMOTE_COMMON, kcov_process);
 #endif
@@ -781,6 +784,8 @@ softclock(void *arg)
 	int need_proc_mp;
 #endif
 
+	//LLTRACE(lltrace_irq, LLTRACE_IRQ_BOTTOM_HALF, 0);
+
 	first_new = NULL;
 	new = 0;
 
@@ -815,6 +820,8 @@ softclock(void *arg)
 	if (need_proc_mp)
 		wakeup(&timeout_proc_mp);
 #endif
+
+	//LLTRACE(lltrace_irqret, LLTRACE_IRQ_BOTTOM_HALF, 0);
 }
 
 void
