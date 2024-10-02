@@ -154,6 +154,7 @@ mi_syscall(struct proc *p, register_t code, const struct sysent *callp,
 		ktrsyscall(p, code, callp->sy_argsize, argp);
 	}
 #endif
+	LLTRACE_CPU(p->p_cpu, lltrace_syscall, code, callp->sy_argsize, argp);
 
 	/* SP must be within MAP_STACK space */
 	if (!uvm_map_inentry(p, &p->p_spinentry, PROC_STACK(p),
@@ -187,6 +188,7 @@ static inline void
 mi_syscall_return(struct proc *p, register_t code, int error,
     const register_t retval[2])
 {
+	LLTRACE_CPU(p->p_cpu, lltrace_sysret, code, error, retval);
 #ifdef SYSCALL_DEBUG
 	KERNEL_LOCK();
 	scdebug_ret(p, code, error, retval);
@@ -211,12 +213,13 @@ mi_syscall_return(struct proc *p, register_t code, int error,
 static inline void
 mi_child_return(struct proc *p)
 {
-#if defined(SYSCALL_DEBUG) || defined(KTRACE) || NDT > 0
+#if defined(SYSCALL_DEBUG) || defined(KTRACE) || NDT > 0 || NLLT > 0
 	int code = (p->p_flag & P_THREAD) ? SYS___tfork :
 	    (p->p_p->ps_flags & PS_PPWAIT) ? SYS_vfork : SYS_fork;
 	const register_t child_retval[2] = { 0, 1 };
 #endif
 
+	LLTRACE_CPU(p->p_cpu, lltrace_sysret, code, 0, child_retval);
 	TRACEPOINT(sched, on__cpu, NULL);
 
 #ifdef SYSCALL_DEBUG

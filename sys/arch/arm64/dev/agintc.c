@@ -30,6 +30,7 @@
 #include <sys/device.h>
 #include <sys/evcount.h>
 #include <sys/atomic.h>
+#include <sys/tracepoint.h>
 
 #include <machine/bus.h>
 #include <machine/cpufunc.h>
@@ -1099,7 +1100,11 @@ agintc_run_handler(struct intrhand *ih, void *frame, int s)
 	else
 		arg = frame;
 
+	LLTRACE(lltrace_irq, ih->ih_ipl == IPL_IPI ? LLTRACE_IRQ_IPI : 0,
+	    ih->ih_irq);
 	handled = ih->ih_func(arg);
+	LLTRACE(lltrace_irqret, ih->ih_ipl == IPL_IPI ? LLTRACE_IRQ_IPI : 0,
+	    ih->ih_irq);
 	if (handled)
 		ih->ih_count.ec_count++;
 
@@ -1444,6 +1449,8 @@ agintc_send_ipi(struct cpu_info *ci, int reason)
 {
 	struct agintc_softc	*sc = agintc_sc;
 	uint64_t sendmask;
+
+	LLTRACE(lltrace_ipi, ci->ci_cpuid);
 
 	if (reason == ARM_IPI_NOP) {
 		if (ci == curcpu())

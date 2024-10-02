@@ -49,6 +49,7 @@
 #include <sys/exec.h>
 #include <sys/exec_elf.h>
 #include <sys/ktrace.h>
+#include <sys/tracepoint.h>
 #include <sys/resourcevar.h>
 #include <sys/mman.h>
 #include <sys/signalvar.h>
@@ -542,6 +543,8 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 	memset(pr->ps_comm, 0, sizeof(pr->ps_comm));
 	strlcpy(pr->ps_comm, nid.ni_cnd.cn_nameptr, sizeof(pr->ps_comm));
 	pr->ps_acflag &= ~AFORK;
+
+	LLTRACE(lltrace_pidname, p);
 
 	/* record proc's vnode, for use by sysctl */
 	otvp = pr->ps_textvp;
