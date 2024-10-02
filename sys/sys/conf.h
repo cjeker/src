@@ -318,6 +318,21 @@ extern struct cdevsw cdevsw[];
 	(dev_type_stop((*))) enodev, 0, \
 	(dev_type_mmap((*))) enodev }
 
+/* open, close, read, ioctl, poll, kqfilter */
+#define cdev_lltrace_init(c,n) {				\
+	.d_open		= dev_init(c,n,open),			\
+	.d_close	= dev_init(c,n,close),			\
+	.d_read		= dev_init(c,n,read),			\
+	.d_write	= (dev_type_write((*))) enodev,		\
+	.d_ioctl	= dev_init(c,n,ioctl),			\
+	.d_stop		= (dev_type_stop((*))) enodev,		\
+	.d_tty		= NULL,					\
+	.d_mmap		= (dev_type_mmap((*))) enodev,		\
+	.d_type		= 0,					\
+	.d_flags	= 0,					\
+	.d_kqfilter	= dev_init(c,n,kqfilter),		\
+}
+
 /* open, close, read, write, ioctl, stop, tty, mmap, kqfilter */
 #define	cdev_wsdisplay_init(c,n) { \
 	dev_init(c,n,open), dev_init(c,n,close), dev_init(c,n,read), \
@@ -592,6 +607,7 @@ cdev_decl(wsmux);
 
 cdev_decl(ksyms);
 cdev_decl(kstat);
+cdev_decl(lltrace);
 
 cdev_decl(bio);
 cdev_decl(vscsi);
