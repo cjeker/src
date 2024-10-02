@@ -81,6 +81,7 @@ pseudo-device	endrun	1	# EndRun line discipline
 pseudo-device	vnd	4	# vnode disk devices
 pseudo-device	ksyms	1	# kernel symbols device
 pseudo-device	kstat		# kernel statistics device
+pseudo-device	llt		# low-level tracing device
 
 # clonable devices
 pseudo-device	bpfilter	# packet filter

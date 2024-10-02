@@ -25,6 +25,7 @@
 #include <sys/limits.h>
 #include <sys/atomic.h>
 #include <sys/witness.h>
+#include <sys/tracepoint.h>
 
 void	rw_do_exit(struct rwlock *, unsigned long);
 
@@ -110,6 +111,7 @@ rw_enter_read(struct rwlock *rwl)
 		membar_enter_after_atomic();
 		WITNESS_CHECKORDER(&rwl->rwl_lock_obj, LOP_NEWORDER, NULL);
 		WITNESS_LOCK(&rwl->rwl_lock_obj, 0);
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_SHARED);
 	}
 }
 
@@ -126,6 +128,7 @@ rw_enter_write(struct rwlock *rwl)
 		WITNESS_CHECKORDER(&rwl->rwl_lock_obj,
 		    LOP_EXCLUSIVE | LOP_NEWORDER, NULL);
 		WITNESS_LOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_EXCL);
 	}
 }
 
@@ -135,6 +138,7 @@ rw_exit_read(struct rwlock *rwl)
 	unsigned long owner;
 
 	rw_assert_rdlock(rwl);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_SHARED);
 	WITNESS_UNLOCK(&rwl->rwl_lock_obj, 0);
 
 	membar_exit_before_atomic();
@@ -150,6 +154,7 @@ rw_exit_write(struct rwlock *rwl)
 	unsigned long owner;
 
 	rw_assert_wrlock(rwl);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_SHARED);
 	WITNESS_UNLOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
 
 	membar_exit_before_atomic();
@@ -249,6 +254,7 @@ rw_enter(struct rwlock *rwl, int flags)
 	op = &rw_ops[(flags & RW_OPMASK) - 1];
 
 	inc = op->inc + RW_PROC(curproc) * op->proc_mult;
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_START);
 retry:
 	while (__predict_false(((o = rwl->rwl_owner) & op->check) != 0)) {
 		unsigned long set = o | op->wait_set;
@@ -272,8 +278,10 @@ retry:
 
 		rw_enter_diag(rwl, flags);
 
-		if (flags & RW_NOSLEEP)
-			return (EBUSY);
+		if (flags & RW_NOSLEEP) {
+			error = EBUSY;
+			goto abort;
+		}
 
 		prio = op->wait_prio;
 		if (flags & RW_INTR)
@@ -285,14 +293,27 @@ retry:
 		error = sleep_finish(0, do_sleep);
 		if ((flags & RW_INTR) &&
 		    (error != 0))
-			return (error);
-		if (flags & RW_SLEEPFAIL)
-			return (EAGAIN);
+			goto abort;
+		if (flags & RW_SLEEPFAIL) {
+			error = EAGAIN;
+			goto abort;
+		}
 	}
 
 	if (__predict_false(rw_cas(&rwl->rwl_owner, o, o + inc)))
 		goto retry;
 	membar_enter_after_atomic();
+
+	if (flags & RW_DOWNGRADE) {
+		WITNESS_DOWNGRADE(&rwl->rwl_lock_obj, lop_flags);
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
+		    LLTRACE_LK_DOWNGRADE);
+	} else {
+		WITNESS_LOCK(&rwl->rwl_lock_obj, lop_flags);
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
+		    ISSET(flags, RW_WRITE) ?
+		    LLTRACE_LK_A_EXCL : LLTRACE_LK_A_SHARED);
+	}
 
 	/*
 	 * If old lock had RWLOCK_WAIT and RWLOCK_WRLOCK set, it means we
@@ -303,12 +324,10 @@ retry:
 	    (RWLOCK_WRLOCK|RWLOCK_WAIT)))
 		wakeup(rwl);
 
-	if (flags & RW_DOWNGRADE)
-		WITNESS_DOWNGRADE(&rwl->rwl_lock_obj, lop_flags);
-	else
-		WITNESS_LOCK(&rwl->rwl_lock_obj, lop_flags);
-
 	return (0);
+abort:
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_ABORT);
+	return (error);
 }
 
 void
@@ -325,6 +344,8 @@ rw_exit(struct rwlock *rwl)
 		rw_assert_wrlock(rwl);
 	else
 		rw_assert_rdlock(rwl);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
+	    wrlock ? LLTRACE_LK_R_EXCL : LLTRACE_LK_R_SHARED);
 	WITNESS_UNLOCK(&rwl->rwl_lock_obj, wrlock ? LOP_EXCLUSIVE : 0);
 
 	membar_exit_before_atomic();

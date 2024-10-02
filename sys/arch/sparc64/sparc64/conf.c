@@ -110,6 +110,7 @@ cdev_decl(pci);
 
 #include "ksyms.h"
 #include "kstat.h"
+#include "llt.h"
 
 #include "hotplug.h"
 #include "vscsi.h"
@@ -180,7 +181,8 @@ struct cdevsw	cdevsw[] =
 	cdev_notdef(),			/* 28 */
 	cdev_notdef(),			/* 29 */
 	cdev_dt_init(NDT,dt),		/* 30: dynamic tracer */
-	cdev_notdef(),			/* 31 */
+	cdev_lltrace_init(NLLT,lltrace),
+					/* 31: lltrace */
 	cdev_notdef(),			/* 32 */
 	cdev_notdef(),			/* 33 */
 	cdev_notdef(),			/* 34 */
