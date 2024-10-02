@@ -102,12 +102,14 @@ struct cpustats {
 #define	SCHED_NQS	32			/* 32 run queues. */
 
 struct smr_entry;
+struct lltrace_cpu;
 
 /*
  * Per-CPU scheduler state.
  *	o	owned (modified only) by this CPU
  */
 struct schedstate_percpu {
+	struct lltrace_cpu *spc_lltrace;
 	struct proc *spc_idleproc;	/* idle proc for this cpu */
 	TAILQ_HEAD(prochead, proc) spc_qs[SCHED_NQS];
 	TAILQ_HEAD(,proc) spc_deadproc;

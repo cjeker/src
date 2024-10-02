@@ -37,6 +37,8 @@
  *	@(#)kern_synch.c	8.6 (Berkeley) 1/21/94
  */
 
+#include "llt.h"
+
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/proc.h>
@@ -561,6 +563,7 @@ unsleep(struct proc *p)
 		p->p_wmesg = NULL;
 		TRACEPOINT(sched, unsleep, p->p_tid + THREAD_PID_OFFSET,
 		    p->p_p->ps_pid);
+		LLTRACE(lltrace_runnable, p);
 	}
 }
 
@@ -597,6 +600,7 @@ wakeup_n(const volatile void *ident, int n)
 		TAILQ_REMOVE(&wakeq, p, p_runq);
 		TRACEPOINT(sched, unsleep, p->p_tid + THREAD_PID_OFFSET,
 		    p->p_p->ps_pid);
+		LLTRACE(lltrace_runnable, p);
 		if (p->p_stat == SSLEEP)
 			setrunnable(p);
 	}

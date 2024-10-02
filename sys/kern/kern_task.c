@@ -24,6 +24,7 @@
 #include <sys/task.h>
 #include <sys/proc.h>
 #include <sys/witness.h>
+#include <sys/tracepoint.h>
 
 #include "kcov.h"
 #if NKCOV > 0
@@ -441,7 +442,9 @@ taskq_thread(void *xtq)
 #if NKCOV > 0
 		kcov_remote_enter(KCOV_REMOTE_COMMON, work.t_process);
 #endif
+		LLTRACE(lltrace_fn_enter, work.t_func);
 		(*work.t_func)(work.t_arg);
+		LLTRACE(lltrace_fn_leave, work.t_func);
 #if NKCOV > 0
 		kcov_remote_leave(KCOV_REMOTE_COMMON, work.t_process);
 #endif

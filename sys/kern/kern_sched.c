@@ -200,7 +200,10 @@ sched_idle(void *v)
 				wakeup(spc);
 			}
 #endif
+
+			LLTRACE(lltrace_idle, 1);
 			cpu_idle_cycle();
+			LLTRACE(lltrace_idle, 0);
 		}
 		cpu_idle_leave();
 		cpuset_del(&sched_idle_cpus, ci);
@@ -257,9 +260,11 @@ sched_toidle(void)
 	idle->p_stat = SRUN;
 
 	uvmexp.swtch++;
-	if (curproc != NULL)
+	if (curproc != NULL) {
 		TRACEPOINT(sched, off__cpu, idle->p_tid + THREAD_PID_OFFSET,
 		    idle->p_p->ps_pid);
+		LLTRACE(lltrace_switch, NULL, idle);
+	}
 	cpu_switchto(NULL, idle);
 	panic("cpu_switchto returned");
 }

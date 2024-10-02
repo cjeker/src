@@ -27,6 +27,7 @@
 #include <sys/task.h>
 #include <sys/rwlock.h>
 #include <sys/atomic.h>
+#include <sys/tracepoint.h>
 
 #include <sys/sensors.h>
 #include "hotplug.h"
@@ -260,8 +261,11 @@ sensor_task_work(void *xst)
 	atomic_inc_int(&sensors_running);
 	rw_enter_write(&st->lock);
 	period = st->period;
-	if (period > 0 && !sensors_quiesced)
+	if (period > 0 && !sensors_quiesced) {
+		LLTRACE(lltrace_fn_enter, st->func);
 		st->func(st->arg);
+		LLTRACE(lltrace_fn_leave, st->func);
+	}
 	rw_exit_write(&st->lock);
 	if (atomic_dec_int_nv(&sensors_running) == 0) {
 		if (sensors_quiesced)

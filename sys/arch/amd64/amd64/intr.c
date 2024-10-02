@@ -45,6 +45,7 @@
 #include <sys/device.h>
 #include <sys/malloc.h>
 #include <sys/errno.h>
+#include <sys/tracepoint.h>
 
 #include <machine/atomic.h>
 #include <machine/i8259.h>
@@ -549,6 +550,9 @@ intr_handler(struct intrframe *frame, struct intrhand *ih)
 		return 0;
 	}
 
+	LLTRACE_CPU(ci, lltrace_intr_enter, LLTRACE_INTR_T_HW,
+	    ci->ci_isources[ih->ih_slot]->is_idtvec);
+
 #ifdef MULTIPROCESSOR
 	if (ih->ih_flags & IPL_MPSAFE)
 		need_lock = 0;
@@ -558,14 +562,22 @@ intr_handler(struct intrframe *frame, struct intrhand *ih)
 	if (need_lock)
 		__mp_lock(&kernel_lock);
 #endif
+
 	floor = ci->ci_handled_intr_level;
 	ci->ci_handled_intr_level = ih->ih_level;
+
+	LLTRACE_CPU(ci, lltrace_fn_enter, ih->ih_fun);
 	rc = (*ih->ih_fun)(ih->ih_arg ? ih->ih_arg : frame);
+	LLTRACE_CPU(ci, lltrace_fn_leave, ih->ih_fun);
+
 	ci->ci_handled_intr_level = floor;
+
 #ifdef MULTIPROCESSOR
 	if (need_lock)
 		__mp_unlock(&kernel_lock);
 #endif
+	LLTRACE_CPU(ci, lltrace_intr_leave, LLTRACE_INTR_T_HW,
+	    ci->ci_isources[ih->ih_slot]->is_idtvec);
 	return rc;
 }
 
