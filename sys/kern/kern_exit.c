@@ -520,6 +520,11 @@ loop:
 			mtx_leave(&pr->ps_mtx);
 			continue;
 		}
+		/* do not count dead and collected processes */
+		if ((pr->ps_flags & PS_ZOMBIE) && (pr->ps_flags & PS_WAITED)) {
+			mtx_leave(&pr->ps_mtx);
+			continue;
+		}
 		nfound++;
 		if ((options & WEXITED) && (pr->ps_flags & PS_ZOMBIE) &&
 		    (pr->ps_flags & PS_WAITED) == 0) {
