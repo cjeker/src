@@ -155,6 +155,7 @@ struct lltrace_header {
 #define LLTRACE_EVENT_CLASS_SCHED	4
 #define LLTRACE_EVENT_CLASS_FUNC	5
 #define LLTRACE_EVENT_CLASS_WAKE	6
+#define LLTRACE_EVENT_CLASS_COUNT	7
 
 #define LLTRACE_EVENT_DATA_SHIFT	\
     (LLTRACE_EVENT_CLASS_SHIFT + LLTRACE_EVENT_CLASS_WIDTH)
@@ -191,6 +192,20 @@ struct lltrace_header {
 
 #define LLTRACE_INTR_DATA_SHIFT		\
     (LLTRACE_INTR_T_SHIFT + LLTRACE_INTR_T_WIDTH)
+
+/* record a count of something */
+#define LLTRACE_COUNT_T_SHIFT		LLTRACE_EVENT_DATA_SHIFT
+#define LLTRACE_COUNT_T_WIDTH		8
+#define LLTRACE_COUNT_T_MASK		LLTRACE_MASK(LLTRACE_COUNT_T_WIDTH)
+
+#define LLTRACE_COUNT_T_PKTS_IFIQ	0
+#define LLTRACE_COUNT_T_PKTS_NETTQ	1
+#define LLTRACE_COUNT_T_PKTS_IFQ	2
+#define LLTRACE_COUNT_T_PKTS_QDROP	3
+#define LLTRACE_COUNT_T_PKTS_HDROP	4
+
+#define LLTRACE_COUNT_V_SHIFT		\
+    (LLTRACE_COUNT_T_SHIFT + LLTRACE_COUNT_T_WIDTH)
 
 /*
  * locking records
@@ -259,6 +274,7 @@ void	lltrace_runnable(struct lltrace_cpu *, struct proc *);
 
 void	lltrace_event_start(struct lltrace_cpu *, unsigned int);
 void	lltrace_event_end(struct lltrace_cpu *, unsigned int);
+void	lltrace_count(struct lltrace_cpu *, unsigned int, unsigned int);
 
 void	lltrace_lock(struct lltrace_cpu *, void *, unsigned int, unsigned int);
 
