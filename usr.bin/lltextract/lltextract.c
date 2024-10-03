@@ -175,7 +175,7 @@ usage(void)
 	exit(1);
 }
 
-static const uint64_t fxt_magic[] = { FXT_INIT_MAGIC };
+static const uint64_t fxt_magic[] = { htole64(FXT_INIT_MAGIC) };
 static const uint64_t fxt_init[2] = { FXT_INIT_RECORD(1000000000ULL) };
 
 static FILE *ifile = stdin;
@@ -196,6 +196,8 @@ static unsigned int lltx_strid_woken;
 static unsigned int lltx_strid_unknown;
 static unsigned int lltx_strid_acquire;
 static unsigned int lltx_strid_symbol;
+static unsigned int lltx_strid_offset;
+static unsigned int lltx_strid_count;
 
 static const char str_process[] = "process";
 static const char str_sched[] = "sched";
@@ -204,6 +206,8 @@ static const char str_woken[] = "woken";
 static const char str_unknown[] = "unknown";
 static const char str_acquire[] = "acquire";
 static const char str_symbol[] = "symbol";
+static const char str_offset[] = "offset";
+static const char str_count[] = "count";
 
 static const char *str_locks[1 << LLTRACE_LK_TYPE_WIDTH] = {
 	[LLTRACE_LK_RW] = "rwlock",
@@ -252,6 +256,12 @@ static struct lltx_fxt_record *
 fxt_extract(void)
 {
 	return (HEAP_EXTRACT(lltx_fxt_heap, &lltx_records));
+}
+
+static inline size_t
+fxt_write(const uint64_t *w, size_t n, FILE *f)
+{
+	return fwrite(w, sizeof(*w), n, f);
 }
 
 int
@@ -308,11 +318,11 @@ main(int argc, char *argv[])
 	if (ofile == NULL)
 		err(1, "%s", ofname);
 
-	rv = fwrite(fxt_magic, sizeof(fxt_magic[0]), nitems(fxt_magic), ofile);
+	rv = fxt_write(fxt_magic, nitems(fxt_magic), ofile);
 	if (rv == 0)
 		err(1, "%s fxt magic write", ofname);
 
-	rv = fwrite(fxt_init, sizeof(fxt_init[0]), nitems(fxt_init), ofile);
+	rv = fxt_write(fxt_init, nitems(fxt_init), ofile);
 	if (rv == 0)
 		err(1, "%s fxt ts write", ofname);
 
@@ -324,6 +334,8 @@ main(int argc, char *argv[])
 	lltx_strid_unknown = lltx_str(str_unknown);
 	lltx_strid_acquire = lltx_str(str_acquire);
 	lltx_strid_symbol = lltx_str(str_symbol);
+	lltx_strid_offset = lltx_str(str_offset);
+	lltx_strid_count = lltx_str(str_count);
 
 	for (i = 0; i < nitems(str_locks); i++) {
 		const char *str = str_locks[i];
@@ -367,7 +379,7 @@ printf("[\n");
 
 		while ((r = fxt_extract()) != NULL) {
 			uint64_t *atoms = (uint64_t *)(r + 1);
-			fwrite(atoms, sizeof(*atoms), r->n, ofile);
+			fxt_write(atoms, r->n, ofile);
 			free(r);
 		}
 	}
@@ -541,16 +553,16 @@ lltx_tid_pid(unsigned int tid, unsigned int pid, unsigned int sys)
 		if (!ps->ps_system) {
 			uint64_t atoms[4];
 
-			atoms[0] = FXT_T_KOBJ;
-			atoms[0] |= nitems(atoms) << FXT_H_SIZE_SHIFT;
-			atoms[0] |= 2ULL << 16; /* ZX_OBJ_TYPE_THREAD */
-			atoms[0] |= 1ULL << 40; /* number of args */
-			atoms[1] = p->p_fxtid;
-			atoms[2] = 8 | (2 << 4); /* koid */
-			atoms[2] |= (uint64_t)lltx_strid_process << 16;
-			atoms[3] = ps->ps_fxtid;
+			atoms[0] = htole64(FXT_T_KOBJ);
+			atoms[0] |= htole64(nitems(atoms) << FXT_H_SIZE_SHIFT);
+			atoms[0] |= htole64(2ULL << 16); /* ZX_OBJ_TYPE_THREAD */
+			atoms[0] |= htole64(1ULL << 40); /* number of args */
+			atoms[1] = htole64(p->p_fxtid);
+			atoms[2] = htole64(8 | (2 << 4)); /* koid */
+			atoms[2] |= htole64((uint64_t)lltx_strid_process << 16);
+			atoms[3] = htole64(ps->ps_fxtid);
 
-			fwrite(atoms, sizeof(atoms[0]), nitems(atoms), ofile);
+			fxt_write(atoms, nitems(atoms), ofile);
 		}
 	} else {
 		if (ps->ps_pid != pid)
@@ -764,23 +776,23 @@ lltx_id_tid(struct lltstate *state, struct llevent *lle, uint64_t record,
 		ps->ps_comm64[i++] = 0;
 	ps->ps_comm_n = extralen;
 
-	fxt_atoms[0] = FXT_T_KOBJ;
+	fxt_atoms[0] = htole64(FXT_T_KOBJ);
 
 	n = 1;
 	if (ps->ps_system) {
-		fxt_atoms[0] |= 2 << 16; /* ZX_OBJ_TYPE_THREAD */
-		fxt_atoms[n++] = p->p_fxtid;
+		fxt_atoms[0] |= htole64(2 << 16); /* ZX_OBJ_TYPE_THREAD */
+		fxt_atoms[n++] = htole64(p->p_fxtid);
 	} else {
-		fxt_atoms[0] |= 1 << 16; /* ZX_OBJ_TYPE_PROCESS */
-		fxt_atoms[n++] = ps->ps_fxtid;
+		fxt_atoms[0] |= htole64(1 << 16); /* ZX_OBJ_TYPE_PROCESS */
+		fxt_atoms[n++] = htole64(ps->ps_fxtid);
 	}
 	for (i = 0; i < extralen; i++)
 		fxt_atoms[n++] = extra[i];
-	fxt_atoms[0] |= n << 4;
-	fxt_atoms[0] |= ((1 << 15) |
-	    strnlen(ps->ps_comm, ps->ps_comm_n * 8)) << 24;
+	fxt_atoms[0] |= htole64(n << 4);
+	fxt_atoms[0] |= htole64(((1 << 15) |
+	    strnlen(ps->ps_comm, ps->ps_comm_n * 8)) << 24);
 
-	fwrite(fxt_atoms, sizeof(fxt_atoms[0]), n, ofile);
+	fxt_write(fxt_atoms, n, ofile);
 }
 
 static void
@@ -794,12 +806,12 @@ lltx_kobj_bsd(void)
 	fxt_atoms[n++] = 0; /* pid 0 is the kernel */
 	n = strtoatoms(fxt_atoms, n, name, namelen);
 
-	fxt_atoms[0] = FXT_T_KOBJ;
-	fxt_atoms[0] |= 1 << 16; /* ZX_OBJ_TYPE_PROCESS */
-	fxt_atoms[0] |= n << 4;
-	fxt_atoms[0] |= ((1 << 15) | namelen) << 24;
+	fxt_atoms[0] = htole64(FXT_T_KOBJ);
+	fxt_atoms[0] |= htole64(1 << 16); /* ZX_OBJ_TYPE_PROCESS */
+	fxt_atoms[0] |= htole64(n << 4);
+	fxt_atoms[0] |= htole64(((1 << 15) | namelen) << 24);
 
-	fwrite(fxt_atoms, sizeof(fxt_atoms[0]), n, ofile);
+	fxt_write(fxt_atoms, n, ofile);
 }
 
 static unsigned int
@@ -811,11 +823,11 @@ lltx_str(const char *str)
 
 	n = strtoatoms(fxt_atoms, 1, str, len);
 
-	fxt_atoms[0] = FXT_T_STRING | (n << 4);
-	fxt_atoms[0] |= strid << 16;
-	fxt_atoms[0] |= (uint64_t)len << 32;
+	fxt_atoms[0] = htole64(FXT_T_STRING | (n << 4));
+	fxt_atoms[0] |= htole64(strid << 16);
+	fxt_atoms[0] |= htole64((uint64_t)len << 32);
 
-	fwrite(fxt_atoms, sizeof(fxt_atoms[0]), n, ofile);
+	fxt_write(fxt_atoms, n, ofile);
 
 	return (strid);
 }
@@ -847,6 +859,7 @@ static const char *lltrace_event_class_names[] = {
 	[LLTRACE_EVENT_CLASS_FUNC]	= "function",
 	[LLTRACE_EVENT_CLASS_PAGEFAULT]	= "pagefault",
 	[LLTRACE_EVENT_CLASS_WAKE]	= "wake",
+	[LLTRACE_EVENT_CLASS_COUNT]	= "count",
 };
 
 static const char *lltrace_event_phase_names[] = {
@@ -867,6 +880,14 @@ static const char *lltrace_intr_type_names[1 << LLTRACE_INTR_T_WIDTH] = {
 	[LLTRACE_INTR_T_SW] = "softintr",
 	[LLTRACE_INTR_T_IPI] = "ipi",
 	[LLTRACE_INTR_T_CLOCK] = "clockintr",
+};
+
+static const char *lltrace_count_type_names[] = {
+	[LLTRACE_COUNT_T_PKTS_IFIQ] = "pkts:ifiq",
+	[LLTRACE_COUNT_T_PKTS_NETTQ] = "pkts:nettq",
+	[LLTRACE_COUNT_T_PKTS_IFQ] = "pkts:ifq",
+	[LLTRACE_COUNT_T_PKTS_QDROP] = "pkts:qdrop",
+	[LLTRACE_COUNT_T_PKTS_HDROP] = "pkts:hdrop",
 };
 
 static const char *
@@ -895,14 +916,14 @@ lltx_thrid(struct llt_tid *p)
 	p->p_thrid = thrid;
 
 	/* XXX not the nicest place to do this */
-	atoms[0] = FXT_T_THREAD | (nitems(atoms) << FXT_H_SIZE_SHIFT);
-	atoms[0] |= thrid << 16;
-	atoms[1] = p->p_p->ps_fxtid;
-	atoms[2] = p->p_fxtid;
+	atoms[0] = htole64(FXT_T_THREAD | (nitems(atoms) << FXT_H_SIZE_SHIFT));
+	atoms[0] |= htole64(thrid << 16);
+	atoms[1] = htole64(p->p_p->ps_fxtid);
+	atoms[2] = htole64(p->p_fxtid);
 
 	printf("#th 0x%016llx %llu %llu\n", atoms[0], atoms[1], atoms[2]);
 
-	fwrite(atoms, sizeof(atoms[0]), nitems(atoms), ofile);
+	fxt_write(atoms, nitems(atoms), ofile);
 
 	return (thrid);
 }
@@ -937,34 +958,34 @@ lltx_sched(struct lltstate *state, struct llevent *lle, uint64_t record,
 
 	if (extralen > 0) {
 		n = 1;
-		fxt_atoms[n++] = state->ns;
-		fxt_atoms[n++] = np->p_p->ps_fxtid;
-		fxt_atoms[n++] = np->p_fxtid;
+		fxt_atoms[n++] = htole64(state->ns);
+		fxt_atoms[n++] = htole64(np->p_p->ps_fxtid);
+		fxt_atoms[n++] = htole64(np->p_fxtid);
 
-		fxt_atoms[0] = FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT);
-		fxt_atoms[0] |= (uint64_t)0 << 16; /* instant event */
-		fxt_atoms[0] |= 0ULL << 20; /* number of args */
-		//fxt_atoms[0] |= nid << 24;
-		fxt_atoms[0] |= (uint64_t)lltx_strid_sched << 32;
-		fxt_atoms[0] |= (uint64_t)lltx_strid_woken << 48;
+		fxt_atoms[0] = htole64(FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT));
+		fxt_atoms[0] |= htole64((uint64_t)0 << 16); /* instant event */
+		fxt_atoms[0] |= htole64(0ULL << 20); /* number of args */
+		//fxt_atoms[0] |= htole64(nid << 24);
+		fxt_atoms[0] |= htole64((uint64_t)lltx_strid_sched << 32);
+		fxt_atoms[0] |= htole64((uint64_t)lltx_strid_woken << 48);
 
-		//fwrite(fxt_atoms, sizeof(fxt_atoms[0]), n, ofile);
+		//fxt_write(fxt_atoms, n, ofile);
 		fxt_insert(state->ns, fxt_atoms, n);
 
 		n = 1;
-		fxt_atoms[n++] = state->ns;
-		fxt_atoms[n++] = np->p_p->ps_fxtid;
-		fxt_atoms[n++] = np->p_fxtid;
-		fxt_atoms[n++] = extra[0];
+		fxt_atoms[n++] = htole64(state->ns);
+		fxt_atoms[n++] = htole64(np->p_p->ps_fxtid);
+		fxt_atoms[n++] = htole64(np->p_fxtid);
+		fxt_atoms[n++] = htole64(extra[0]);
 
-		fxt_atoms[0] = FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT);
-		fxt_atoms[0] |= (uint64_t)10 << 16;
-		fxt_atoms[0] |= 0ULL << 20; /* number of args */
-		//fxt_atoms[0] |= nid << 24;
-		fxt_atoms[0] |= (uint64_t)lltx_strid_sched << 32;
-		fxt_atoms[0] |= (uint64_t)lltx_strid_wakeup << 48;
+		fxt_atoms[0] = htole64(FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT));
+		fxt_atoms[0] |= htole64((uint64_t)10 << 16);
+		fxt_atoms[0] |= htole64(0ULL << 20); /* number of args */
+		//fxt_atoms[0] |= htole64(nid << 24);
+		fxt_atoms[0] |= htole64((uint64_t)lltx_strid_sched << 32);
+		fxt_atoms[0] |= htole64((uint64_t)lltx_strid_wakeup << 48);
 
-		//fwrite(fxt_atoms, sizeof(fxt_atoms[0]), n, ofile);
+		//fxt_write(fxt_atoms, n, ofile);
 		fxt_insert(state->ns, fxt_atoms, n);
 	}
 
@@ -972,22 +993,22 @@ lltx_sched(struct lltstate *state, struct llevent *lle, uint64_t record,
 //	nid = lltx_thrid(np);
 
 	n = 1;
-	fxt_atoms[n++] = state->ns;
-	fxt_atoms[n++] = op->p_p->ps_fxtid;
-	fxt_atoms[n++] = op->p_fxtid;
-	fxt_atoms[n++] = np->p_p->ps_fxtid;
-	fxt_atoms[n++] = np->p_fxtid;
+	fxt_atoms[n++] = htole64(state->ns);
+	fxt_atoms[n++] = htole64(op->p_p->ps_fxtid);
+	fxt_atoms[n++] = htole64(op->p_fxtid);
+	fxt_atoms[n++] = htole64(np->p_p->ps_fxtid);
+	fxt_atoms[n++] = htole64(np->p_fxtid);
 
-	fxt_atoms[0] = FXT_T_SCHED | (n << FXT_H_SIZE_SHIFT);
-	fxt_atoms[0] |= (uint64_t)state->cpu << 16;
-	fxt_atoms[0] |= (uint64_t)ostate << 24;
-//	fxt_atoms[0] |= oid << 28;
-//	fxt_atoms[0] |= nid << 36;
-	fxt_atoms[0] |= 1ULL << 44;
-	fxt_atoms[0] |= 1ULL << 52;
-	fxt_atoms[0] |= (uint64_t)0 << 60;
+	fxt_atoms[0] = htole64(FXT_T_SCHED | (n << FXT_H_SIZE_SHIFT));
+	fxt_atoms[0] |= htole64((uint64_t)state->cpu << 16);
+	fxt_atoms[0] |= htole64((uint64_t)ostate << 24);
+//	fxt_atoms[0] |= htole64(oid << 28);
+//	fxt_atoms[0] |= htole64(nid << 36);
+	fxt_atoms[0] |= htole64(1ULL << 44);
+	fxt_atoms[0] |= htole64(1ULL << 52);
+	fxt_atoms[0] |= htole64((uint64_t)0 << 60);
 
-	//fwrite(fxt_atoms, sizeof(fxt_atoms[0]), n, ofile);
+	//fxt_write(fxt_atoms, n, ofile);
 	fxt_insert(state->ns, fxt_atoms, n);
 
 	state->p = np;
@@ -1005,32 +1026,32 @@ lltx_sched_wake(struct lltstate *state, struct llevent *lle, uint64_t record,
 		p = state->p;
 
 		n = 1;
-		fxt_atoms[n++] = state->ns;
-		fxt_atoms[n++] = p->p_p->ps_fxtid;
-		fxt_atoms[n++] = p->p_fxtid;
+		fxt_atoms[n++] = htole64(state->ns);
+		fxt_atoms[n++] = htole64(p->p_p->ps_fxtid);
+		fxt_atoms[n++] = htole64(p->p_fxtid);
 
-		fxt_atoms[0] = FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT);
-		fxt_atoms[0] |= (uint64_t)0 << 16; /* instant event */
-		fxt_atoms[0] |= 0ULL << 20; /* number of args */
-		fxt_atoms[0] |= (uint64_t)lltx_strid_sched << 32;
-		fxt_atoms[0] |= (uint64_t)lltx_strid_wakeup << 48;
+		fxt_atoms[0] = htole64(FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT));
+		fxt_atoms[0] |= htole64((uint64_t)0 << 16); /* instant event */
+		fxt_atoms[0] |= htole64(0ULL << 20); /* number of args */
+		fxt_atoms[0] |= htole64((uint64_t)lltx_strid_sched << 32);
+		fxt_atoms[0] |= htole64((uint64_t)lltx_strid_wakeup << 48);
 
-		//fwrite(fxt_atoms, sizeof(fxt_atoms[0]), n, ofile);
+		//fxt_write(fxt_atoms, n, ofile);
 		fxt_insert(state->ns, fxt_atoms, n);
 
 		n = 1;
-		fxt_atoms[n++] = state->ns;
-		fxt_atoms[n++] = p->p_p->ps_fxtid;
-		fxt_atoms[n++] = p->p_fxtid;
-		fxt_atoms[n++] = extra[0];
+		fxt_atoms[n++] = htole64(state->ns);
+		fxt_atoms[n++] = htole64(p->p_p->ps_fxtid);
+		fxt_atoms[n++] = htole64(p->p_fxtid);
+		fxt_atoms[n++] = htole64(extra[0]);
 
-		fxt_atoms[0] = FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT);
-		fxt_atoms[0] |= (uint64_t)8 << 16;
-		fxt_atoms[0] |= 0ULL << 20; /* number of args */
-		fxt_atoms[0] |= (uint64_t)lltx_strid_sched << 32;
-		fxt_atoms[0] |= (uint64_t)lltx_strid_wakeup << 48;
+		fxt_atoms[0] = htole64(FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT));
+		fxt_atoms[0] |= htole64((uint64_t)8 << 16);
+		fxt_atoms[0] |= htole64(0ULL << 20); /* number of args */
+		fxt_atoms[0] |= htole64((uint64_t)lltx_strid_sched << 32);
+		fxt_atoms[0] |= htole64((uint64_t)lltx_strid_wakeup << 48);
 
-		//fwrite(fxt_atoms, sizeof(fxt_atoms[0]), n, ofile);
+		//fxt_write(fxt_atoms, n, ofile);
 		fxt_insert(state->ns, fxt_atoms, n);
 	}
 
@@ -1050,14 +1071,14 @@ lltx_sched_wake(struct lltstate *state, struct llevent *lle, uint64_t record,
 	}
 
 	n = 1;
-	fxt_atoms[n++] = state->ns;
-	fxt_atoms[n++] = p->p_fxtid;
+	fxt_atoms[n++] = htole64(state->ns);
+	fxt_atoms[n++] = htole64(p->p_fxtid);
 
-	fxt_atoms[0] = FXT_T_SCHED | (n << FXT_H_SIZE_SHIFT);
-	fxt_atoms[0] |= (uint64_t)state->cpu << 20;
-	fxt_atoms[0] |= (uint64_t)2 << 60;
+	fxt_atoms[0] = htole64(FXT_T_SCHED | (n << FXT_H_SIZE_SHIFT));
+	fxt_atoms[0] |= htole64((uint64_t)state->cpu << 20);
+	fxt_atoms[0] |= htole64((uint64_t)2 << 60);
 
-	//fwrite(fxt_atoms, sizeof(fxt_atoms[0]), n, ofile);
+	//fxt_write(fxt_atoms, n, ofile);
 	//fxt_insert(state->ns, fxt_atoms, n);
 }
 
@@ -1087,40 +1108,91 @@ lltx_idle(struct lltstate *state, struct llevent *lle, unsigned int phase)
 	}
 
 	n = 1;
-	fxt_atoms[n++] = state->ns;
+	fxt_atoms[n++] = htole64(state->ns);
 
 	switch (phase) {
 	case LLTRACE_EVENT_PHASE_START:
 		oprio = 1;
-		fxt_atoms[n++] = p->p_p->ps_fxtid;
-		fxt_atoms[n++] = p->p_fxtid;
+		fxt_atoms[n++] = htole64(p->p_p->ps_fxtid);
+		fxt_atoms[n++] = htole64(p->p_fxtid);
 		iprio = 0;
-		fxt_atoms[n++] = 0;
-		fxt_atoms[n++] = 0;
+		fxt_atoms[n++] = htole64(0);
+		fxt_atoms[n++] = htole64(0);
 		break;
 	case LLTRACE_EVENT_PHASE_END:
 		oprio = 0;
-		fxt_atoms[n++] = 0;
-		fxt_atoms[n++] = 0;
+		fxt_atoms[n++] = htole64(0);
+		fxt_atoms[n++] = htole64(0);
 		iprio = 1;
-		fxt_atoms[n++] = p->p_p->ps_fxtid;
-		fxt_atoms[n++] = p->p_fxtid;
+		fxt_atoms[n++] = htole64(p->p_p->ps_fxtid);
+		fxt_atoms[n++] = htole64(p->p_fxtid);
 		break;
 	default:
 		return;
 	}
 
-	fxt_atoms[0] = FXT_T_SCHED | (n << FXT_H_SIZE_SHIFT);
-	fxt_atoms[0] |= (uint64_t)state->cpu << 16;
-	fxt_atoms[0] |= (uint64_t)3 << 24;
-	fxt_atoms[0] |= oprio << 44;
-	fxt_atoms[0] |= iprio << 52;
-	fxt_atoms[0] |= (uint64_t)0 << 60;
+	fxt_atoms[0] = htole64(FXT_T_SCHED | (n << FXT_H_SIZE_SHIFT));
+	fxt_atoms[0] |= htole64((uint64_t)state->cpu << 16);
+	fxt_atoms[0] |= htole64((uint64_t)3 << 24);
+	fxt_atoms[0] |= htole64(oprio << 44);
+	fxt_atoms[0] |= htole64(iprio << 52);
+	fxt_atoms[0] |= htole64((uint64_t)0 << 60);
 
-	//fwrite(fxt_atoms, sizeof(fxt_atoms[0]), n, ofile);
+	//fxt_write(fxt_atoms, n, ofile);
 	fxt_insert(state->ns, fxt_atoms, n);
 
 	state->idle = phase;
+}
+
+static void
+lltx_event_count(struct lltstate *state, struct llevent *lle,
+    unsigned int phase, const char *classnm, size_t classnmlen,
+    uint64_t record)
+{
+	char tname[128];
+	uint32_t t, v;
+	const char *eventnm;
+	size_t eventnmlen;
+	size_t n, an;
+
+	t = (record >> LLTRACE_COUNT_T_SHIFT) & LLTRACE_COUNT_T_MASK;
+	if (t >= nitems(lltrace_count_type_names) ||
+	    (eventnm = lltrace_count_type_names[t]) == NULL) {
+		int rv;
+
+		warnx("unknown count type class %u", t);
+
+		rv = snprintf(tname, sizeof(tname), "count-type-%u", t);
+		if (rv == -1)
+			errx(1, "count event type name snprintf");
+		eventnm = tname;
+		eventnmlen = rv;
+		if (classnmlen >= sizeof(tname))
+			errx(1, "event class name too long");
+	} else
+		eventnmlen = strlen(eventnm);
+
+	v = (record >> LLTRACE_COUNT_V_SHIFT);
+
+	n = 1;
+	fxt_atoms[n++] = htole64(state->ns);
+	fxt_atoms[n++] = htole64(state->p->p_p->ps_fxtid);
+	fxt_atoms[n++] = htole64(state->p->p_fxtid);
+	n = strtoatoms(fxt_atoms, n, classnm, classnmlen);
+	n = strtoatoms(fxt_atoms, n, eventnm, eventnmlen);
+
+	an = n++;
+	fxt_atoms[an] = htole64(2 | (1 << 4));
+	fxt_atoms[an] |= htole64(lltx_strid_count << 16);
+	fxt_atoms[an] |= htole64((uint64_t)v << 32);
+
+	fxt_atoms[0] = htole64(FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT));
+	fxt_atoms[0] |= htole64(lltrace_event_phase_map[phase] << 16);
+	fxt_atoms[0] |= htole64(1 << 20); /* 1 argument */
+	fxt_atoms[0] |= htole64(((1<<15) | classnmlen) << 32);
+	fxt_atoms[0] |= htole64(((1<<15) | eventnmlen) << 48);
+
+	fxt_write(fxt_atoms, n, ofile);
 }
 
 static void
@@ -1233,6 +1305,11 @@ lltx_event(struct lltstate *state, struct llevent *lle, uint64_t record,
 			}
 		}
 		break;
+	case LLTRACE_EVENT_CLASS_COUNT:
+		lltx_event_count(state, lle, phase, classnm, classnmlen,
+		    record);
+		return;
+		
 	default:
 		eventnm = classnm;
 		eventnmlen = classnmlen;
@@ -1247,19 +1324,18 @@ lltx_event(struct lltstate *state, struct llevent *lle, uint64_t record,
 	}
 
 	n = 1;
-	fxt_atoms[n++] = state->ns;
-	fxt_atoms[n++] = state->p->p_p->ps_fxtid;
-	fxt_atoms[n++] = state->p->p_fxtid;
+	fxt_atoms[n++] = htole64(state->ns);
+	fxt_atoms[n++] = htole64(state->p->p_p->ps_fxtid);
+	fxt_atoms[n++] = htole64(state->p->p_fxtid);
 	n = strtoatoms(fxt_atoms, n, classnm, classnmlen);
 	n = strtoatoms(fxt_atoms, n, eventnm, eventnmlen);
 
-	fxt_atoms[0] = FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT);
-	fxt_atoms[0] |= lltrace_event_phase_map[phase] << 16;
-	fxt_atoms[0] |= ((1<<15) | classnmlen) << 32;
-	fxt_atoms[0] |= ((1<<15) | eventnmlen) << 48;
+	fxt_atoms[0] = htole64(FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT));
+	fxt_atoms[0] |= htole64(lltrace_event_phase_map[phase] << 16);
+	fxt_atoms[0] |= htole64(((1<<15) | classnmlen) << 32);
+	fxt_atoms[0] |= htole64(((1<<15) | eventnmlen) << 48);
 
-	//fwrite(fxt_atoms, sizeof(fxt_atoms[0]), n, ofile);
-	fxt_insert(state->ns, fxt_atoms, n);
+	fxt_write(fxt_atoms, n, ofile);
 }
 
 static void
@@ -1302,24 +1378,26 @@ lltx_locking(struct lltstate *state, struct llevent *lle, uint64_t record,
 	case LLTRACE_LK_A_EXCL:
 	case LLTRACE_LK_A_SHARED:
 	case LLTRACE_LK_A_ABORT:
-		durev = 4;
+		durev = 3;
 		break;
 	}
 
 	if (0 && ltype == LLTRACE_LK_RW && durev != -1) {
 		n = 1;
-		fxt_atoms[n++] = state->ns;
+		fxt_atoms[n++] = htole64(state->ns);
+		fxt_atoms[n++] = htole64(p->p_p->ps_fxtid);
+		fxt_atoms[n++] = htole64(p->p_fxtid);
 
-		fxt_atoms[0] = FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT);
-		fxt_atoms[0] |= (uint64_t)durev << 16; /* duration begin */
-		fxt_atoms[0] |= cref << 32;
-		fxt_atoms[0] |= (uint64_t)lltx_strid_acquire << 48;
+		fxt_atoms[0] = htole64(FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT));
+		fxt_atoms[0] |= htole64((uint64_t)durev << 16); /* duration begin */
+		fxt_atoms[0] |= htole64(cref << 32);
+		fxt_atoms[0] |= htole64((uint64_t)lltx_strid_acquire << 48);
 
-		//fwrite(fxt_atoms, sizeof(fxt_atoms[0]), n, ofile);
+		//fxt_write(fxt_atoms, n, ofile);
 		fxt_insert(state->ns, fxt_atoms, n);
 	}
 
-	k = ksym_find(addr);
+	k = ksym_nfind(addr);
 	if (k != NULL && k->ref == 0) {
 		k->ref = lltx_str(k->name);
 #if 0
@@ -1327,13 +1405,12 @@ lltx_locking(struct lltstate *state, struct llevent *lle, uint64_t record,
 		n = 1;
 		fxt_atoms[n++] = addr;
 
-		fxt_atoms[0] = FXT_T_KOBJ | (n << FXT_H_SIZE_SHIFT);
-		fxt_atoms[0] |= 0ULL << 16; /* ZX_OBJ_TYPE_NONE */
-		fxt_atoms[0] |= k->ref << 24; /* name */
-		fxt_atoms[0] |= 0ULL << 40; /* number of args */
+		fxt_atoms[0] = htole64(FXT_T_KOBJ | (n << FXT_H_SIZE_SHIFT));
+		fxt_atoms[0] |= htole64(0ULL << 16); /* ZX_OBJ_TYPE_NONE */
+		fxt_atoms[0] |= htole64(k->ref << 24); /* name */
+		fxt_atoms[0] |= htole64(0ULL << 40); /* number of args */
 
-		fwrite(fxt_atoms, sizeof(fxt_atoms[0]), n, ofile);
-		//fxt_insert(state->ns, fxt_atoms, n);
+		fxt_write(fxt_atoms, n, ofile);
 #endif
 	}
 
@@ -1346,30 +1423,41 @@ lltx_locking(struct lltstate *state, struct llevent *lle, uint64_t record,
 	}
 
 	n = 1;
-	fxt_atoms[n++] = state->ns;
-	fxt_atoms[n++] = p->p_p->ps_fxtid;
-	fxt_atoms[n++] = p->p_fxtid;
-	fxt_atoms[n++] = 8 | (2 << 4) | (cref << 16);
-	fxt_atoms[n++] = addr;
+	fxt_atoms[n++] = htole64(state->ns);
+	fxt_atoms[n++] = htole64(p->p_p->ps_fxtid);
+	fxt_atoms[n++] = htole64(p->p_fxtid);
+	fxt_atoms[n++] = htole64(8 | (2 << 4) | (cref << 16));
+	fxt_atoms[n++] = htole64(addr);
 	if (k != NULL) {
 		size_t na = n++;
+		uint32_t diff;
 
-		fxt_atoms[na] = 6 | (2 << 4);
-		fxt_atoms[na] |= (uint64_t)lltx_strid_symbol << 16;
-		fxt_atoms[na] |= (uint64_t)k->ref << 32;
+		fxt_atoms[na] = htole64(6 | (2 << 4));
+		fxt_atoms[na] |= htole64((uint64_t)lltx_strid_symbol << 16);
+		fxt_atoms[na] |= htole64((uint64_t)k->ref << 32);
 
 		nargs++;
+
+		diff = addr - k->addr;
+		if (diff > 0) {
+			na = n++;
+
+			fxt_atoms[na] = htole64(2 | (1 << 4));
+			fxt_atoms[na] |= htole64((uint64_t)lltx_strid_offset << 16);
+			fxt_atoms[na] |= htole64((uint64_t)diff << 32);
+
+			nargs++;
+		} 
 	}
 
-	fxt_atoms[0] = FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT);
-	fxt_atoms[0] |= 0 << 16; /* instant event */
-	fxt_atoms[0] |= nargs << 20;
-//	fxt_atoms[0] |= tref << 24;
-	fxt_atoms[0] |= cref << 32;
-	fxt_atoms[0] |= nref << 48;
+	fxt_atoms[0] = htole64(FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT));
+	fxt_atoms[0] |= htole64(0 << 16); /* instant event */
+	fxt_atoms[0] |= htole64(nargs << 20);
+//	fxt_atoms[0] |= htole64(tref << 24);
+	fxt_atoms[0] |= htole64(cref << 32);
+	fxt_atoms[0] |= htole64(nref << 48);
 
-	//fwrite(fxt_atoms, sizeof(fxt_atoms[0]), n, ofile);
-	fxt_insert(state->ns, fxt_atoms, n);
+	fxt_write(fxt_atoms, n, ofile);
 }
 
 #if 0
