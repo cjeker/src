@@ -100,7 +100,7 @@ lltrace_ts_long(void)
 {
 	uint64_t ts;
 
-	__asm volatile("rd %%tick, %0" : "=r" (ts) :);
+	ts = sys_tick();
 
 	return (ts << LLTRACE_TS_SHIFT);
 }
@@ -108,7 +108,7 @@ lltrace_ts_long(void)
 static inline uint64_t
 lltrace_ts(void)
 {
-	uint64_t ts = ltrace_ts_long();
+	uint64_t ts = lltrace_ts_long();
 
 	return (ts & (LLTRACE_TS_MASK << LLTRACE_TS_SHIFT));
 }
@@ -332,7 +332,7 @@ lltrace_set_blen(struct lltrace_softc *sc, unsigned int blen)
 	/* convert megabytes to the number of buffers */
 	nbuffers = LLTRACE_MB2NBUF(blen);
 	if (nbuffers <= ncpus)
-		EINVAL;
+		return (EINVAL);
 
 	error = rw_enter(&sc->sc_lock, RW_WRITE|RW_INTR);
 	if (error != 0)
@@ -1034,16 +1034,16 @@ lltrace_lock(struct lltrace_cpu *llt, void *lock,
 }
 
 void
-lltrace_pkts(struct lltrace_cpu *llt, unsigned int t, unsigned int v)
+lltrace_count(struct lltrace_cpu *llt, unsigned int t, unsigned int v)
 {
-#if 0
-	t &= LLTRACE_PKTS_T_MASK;
+	uint64_t record;
 
-	v <<= LLTRACE_PKTS_V_SHIFT;
-	v &= LLTRACE_PKTS_V_MASK;
+	record = LLTRACE_EVENT_PHASE_INSTANT << LLTRACE_EVENT_PHASE_SHIFT;
+	record |= LLTRACE_EVENT_CLASS_COUNT << LLTRACE_EVENT_CLASS_SHIFT;
+	record |= (uint64_t)t << LLTRACE_COUNT_T_SHIFT;
+	record |= (uint64_t)v << LLTRACE_COUNT_V_SHIFT;
 
-	lltrace_arg32(llt, LLTRACE_EVENT_PKTS, t | v);
-#endif
+	lltrace_insert(llt, LLTRACE_TYPE_EVENT, record, NULL, 0);
 }
 
 void

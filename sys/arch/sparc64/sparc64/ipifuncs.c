@@ -30,7 +30,6 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/proc.h>
-#include <sys/atomic.h>
 #include <sys/tracepoint.h>
 
 #include <uvm/uvm_extern.h>
@@ -157,7 +156,7 @@ sun4v_send_ipi(int itid, void (*func)(void), u_int64_t arg0, u_int64_t arg1)
 void
 sparc64_broadcast_ipi(void (*func)(void), u_int64_t arg0, u_int64_t arg1)
 {
-	LLTRACE_CPU(curcpu(), lltrace_ipi, ~0);
+	LLTRACE(lltrace_ipi, ~0x0);
 
 	if (CPU_ISSUN4V)
 		sun4v_broadcast_ipi(func, arg0, arg1);
@@ -187,6 +186,8 @@ sun4v_broadcast_ipi(void (*func)(void), u_int64_t arg0, u_int64_t arg1)
 	int err, i, s, ncpus = 0;
 
 	s = splhigh();
+
+	LLTRACE(lltrace_ipi, ~0x0);
 
 	for (ci = cpus; ci != NULL; ci = ci->ci_next) {
 		if (ci->ci_cpuid == cpu_number())

@@ -50,7 +50,7 @@ struct lltrace_buffer {
  */
 
 #define LLTRACE_BLEN_MIN		1
-#define LLTRACE_BLEN_MAX		128
+#define LLTRACE_BLEN_MAX		256
 
 #define LLTIOCSBLEN		_IOW('t', 132, unsigned int)
 #define LLTIOCGBLEN		_IOR('t', 132, unsigned int)

@@ -42,19 +42,23 @@ HASHINFO openinfo = {
 	0		/* lorder */
 };
 
-RBT_HEAD(ksyms, ksym);
+RBT_HEAD(ksym_names, ksym);
+RBT_HEAD(ksym_addrs, ksym);
 
-RBT_PROTOTYPE(ksyms, ksym, entry, ksym_cmp);
+RBT_PROTOTYPE(ksym_names, ksym, name_entry, ksym_name_cmp);
+RBT_PROTOTYPE(ksym_addrs, ksym, addr_entry, ksym_addr_cmp);
 
-static struct ksyms _ksyms = RBT_INITIALIZER(ksyms);
+static struct ksym_names _ksym_names = RBT_INITIALIZER();
+static struct ksym_addrs _ksym_addrs = RBT_INITIALIZER();
 
-static void
-knames_load(struct ksyms *ksyms)
+void
+ksym_load(void)
 {
 	DB *db;
 	DBT key, data;
 	struct nlist n;
-	struct ksym *k;
+	struct ksym *k, *ok;
+	char *name;
 
 	db = dbopen(DBNAME, O_RDONLY, 0, DB_HASH, NULL);
 	if (db == NULL)
@@ -81,16 +85,25 @@ knames_load(struct ksyms *ksyms)
 		if (k == NULL)
 			err(1, "%s ksym", __func__);
 
+		name = (char *)(k + 1);
+		memcpy(name, (const char *)key.data + 1, key.size - 1);
+		name[key.size - 1] = '\0';
+
 		k->addr = n.n_value;
 		k->len = 0;
-		k->name = (char *)(k + 1);
+		k->name = name;
 		k->ref = 0;
 
-		memcpy(k->name, (const char *)key.data + 1, key.size - 1);
-		k->name[key.size - 1] = '\0';
-
-		if (RBT_INSERT(ksyms, ksyms, k) != NULL)
-			free(k);
+		ok = RBT_INSERT(ksym_names, &_ksym_names, k);
+		if (ok != NULL) {
+			warnx("symbol name %s (%08x) already exists",
+			    k->name, k->addr);
+		}
+		ok = RBT_INSERT(ksym_addrs, &_ksym_addrs, k);
+		if (0 && ok != NULL) { 
+			warnx("symbol addr %08x (%s) already exists (%s)",
+			    k->addr, k->name, ok->name);
+		}
 	}
 
 	db->close(db);
@@ -99,29 +112,29 @@ knames_load(struct ksyms *ksyms)
 struct ksym *
 ksym_find(uint32_t addr)
 {
-	struct ksyms *ksyms = &_ksyms;
 	struct ksym key = { .addr = addr };
 
-	if (RBT_EMPTY(ksyms, ksyms))
-		knames_load(ksyms);
-
-	return (RBT_FIND(ksyms, ksyms, &key));
+	return (RBT_FIND(ksym_addrs, &_ksym_addrs, &key));
 }
 
 struct ksym *
 ksym_nfind(uint32_t addr)
 {
-	struct ksyms *ksyms = &_ksyms;
 	struct ksym key = { .addr = addr };
 
-	if (RBT_EMPTY(ksyms, ksyms))
-		knames_load(ksyms);
+	return (RBT_NFIND(ksym_addrs, &_ksym_addrs, &key));
+}
 
-	return (RBT_NFIND(ksyms, ksyms, &key));
+struct ksym *
+ksym_name(const char *name)
+{
+	struct ksym key = { .name = name };
+
+	return (RBT_FIND(ksym_names, &_ksym_names, &key));
 }
 
 static inline int
-ksym_cmp(const struct ksym *a, const struct ksym *b)
+ksym_addr_cmp(const struct ksym *a, const struct ksym *b)
 {
 	if (a->addr > b->addr)
 		return (-1);
@@ -130,4 +143,12 @@ ksym_cmp(const struct ksym *a, const struct ksym *b)
 	return (0);
 }
 
-RBT_GENERATE(ksyms, ksym, entry, ksym_cmp);
+RBT_GENERATE(ksym_addrs, ksym, addr_entry, ksym_addr_cmp);
+
+static inline int
+ksym_name_cmp(const struct ksym *a, const struct ksym *b)
+{
+	return (strcmp(a->name, b->name));
+}
+
+RBT_GENERATE(ksym_names, ksym, name_entry, ksym_name_cmp);

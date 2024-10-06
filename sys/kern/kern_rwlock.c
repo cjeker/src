@@ -33,6 +33,11 @@
 #define RW_SLEEP_TMO	INFSLP
 #endif
 
+struct rwlock_waiter {
+	struct proc		*w_proc;
+	struct rwlock_waiter	*w_next;
+};
+
 /*
  * Other OSes implement more sophisticated mechanism to determine how long the
  * process attempting to acquire the lock should be spinning. We start with
@@ -170,6 +175,8 @@ _rw_init_flags_witness(struct rwlock *rwl, const char *name, int lo_flags,
 	rwl->rwl_readers = 0;
 	rwl->rwl_name = name;
 	rwl->rwl_traceidx = trace;
+	rwl->rwl_next = NULL;
+	rwl->rwl_tail = &rwl->rwl_next;
 
 #ifdef WITNESS
 	rwl->rwl_lock_obj.lo_flags = lo_flags;
