@@ -175,8 +175,6 @@ _rw_init_flags_witness(struct rwlock *rwl, const char *name, int lo_flags,
 	rwl->rwl_readers = 0;
 	rwl->rwl_name = name;
 	rwl->rwl_traceidx = trace;
-	rwl->rwl_next = NULL;
-	rwl->rwl_tail = &rwl->rwl_next;
 
 #ifdef WITNESS
 	rwl->rwl_lock_obj.lo_flags = lo_flags;
