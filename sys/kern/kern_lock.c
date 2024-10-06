@@ -171,7 +171,8 @@ __mp_lock(struct __mp_lock *mpl)
 	s = intr_disable();
 	depth = cpu->mplc_depth++;
 	if (depth == 0) {
-		LLTRACE(lltrace_lock, mpl, LLTRACE_LK_K, LLTRACE_LK_A_START);
+		LLTRACE(lltrace_lock, mpl, LLTRACE_LK_K, LLTRACE_LK_A_START,
+		    (unsigned long)__builtin_return_address(0));
 		cpu->mplc_ticket = atomic_inc_int_nv(&mpl->mpl_users);
 	}
 	intr_restore(s);
@@ -182,7 +183,8 @@ __mp_lock(struct __mp_lock *mpl)
 	WITNESS_LOCK(&mpl->mpl_lock_obj, LOP_EXCLUSIVE);
 
 	if (depth == 0)
-		LLTRACE(lltrace_lock, mpl, LLTRACE_LK_K, LLTRACE_LK_A_EXCL);
+		LLTRACE(lltrace_lock, mpl, LLTRACE_LK_K, LLTRACE_LK_A_EXCL,
+		    (unsigned long)__builtin_return_address(0));
 }
 
 void
@@ -202,7 +204,8 @@ __mp_unlock(struct __mp_lock *mpl)
 
 	s = intr_disable();
 	if (--cpu->mplc_depth == 0) {
-		LLTRACE(lltrace_lock, mpl, LLTRACE_LK_K, LLTRACE_LK_R_EXCL);
+		LLTRACE(lltrace_lock, mpl, LLTRACE_LK_K, LLTRACE_LK_R_EXCL,
+		    (unsigned long)__builtin_return_address(0));
 		membar_exit();
 		mpl->mpl_ticket++;
 	}
@@ -219,7 +222,8 @@ __mp_release_all(struct __mp_lock *mpl)
 	int i;
 #endif
 
-	LLTRACE(lltrace_lock, mpl, LLTRACE_LK_K, LLTRACE_LK_R_EXCL);
+	LLTRACE(lltrace_lock, mpl, LLTRACE_LK_K, LLTRACE_LK_R_EXCL,
+	    (unsigned long)__builtin_return_address(0));
 
 	s = intr_disable();
 	rv = cpu->mplc_depth;
@@ -590,7 +594,8 @@ mtx_leave(struct mutex *mtx)
 		return;
 
 	MUTEX_ASSERT_LOCKED(mtx);
-	LLTRACE(lltrace_lock, mtx, LLTRACE_LK_MTX, LLTRACE_LK_R_EXCL);
+	LLTRACE(lltrace_lock, mtx, LLTRACE_LK_MTX, LLTRACE_LK_R_EXCL,
+	    (unsigned long)__builtin_return_address(0));
 	WITNESS_UNLOCK(MUTEX_LOCK_OBJECT(mtx), LOP_EXCLUSIVE);
 
 #ifdef DIAGNOSTIC
