@@ -83,7 +83,9 @@ int
 sys_getppid(struct proc *p, void *v, register_t *retval)
 {
 
+	mtx_enter(&p->p_p->ps_mtx);
 	*retval = p->p_p->ps_ppid;
+	mtx_leave(&p->p_p->ps_mtx);
 	return (0);
 }
 

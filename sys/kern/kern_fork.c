@@ -457,8 +457,9 @@ fork1(struct proc *curp, int flags, void (*func)(void *), void *arg,
 	LIST_INSERT_AFTER(curpr, pr, ps_pglist);
 	LIST_INSERT_HEAD(&curpr->ps_children, pr, ps_sibling);
 
+	mtx_enter(&pr->ps_mtx);
 	if (pr->ps_flags & PS_TRACED) {
-		pr->ps_oppid = curpr->ps_pid;
+		pr->ps_opptr = curpr;
 		process_reparent(pr, curpr->ps_pptr);
 
 		/*
@@ -473,6 +474,7 @@ fork1(struct proc *curp, int flags, void (*func)(void *), void *arg,
 			pr->ps_ptstat->pe_other_pid = curpr->ps_pid;
 		}
 	}
+	mtx_leave(&pr->ps_mtx);
 
 	/*
 	 * For new processes, set accounting bits and mark as complete.
