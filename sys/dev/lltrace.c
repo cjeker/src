@@ -893,7 +893,7 @@ lltrace_switch(struct lltrace_cpu *llt, struct proc *op, struct proc *np)
 		state = LLTRACE_SCHED_STATE_DEAD;
 	else if (ISSET(op->p_flag, P_WEXIT))
 		state = LLTRACE_SCHED_STATE_DYING;
-	else if (ISSET(op->p_flag, P_WSLEEP))
+	else if (op->p_wchan != 0)
 		state = LLTRACE_SCHED_STATE_SUSPENDED;
 	else
 		state = LLTRACE_SCHED_STATE_BLOCKED;
