@@ -1024,13 +1024,15 @@ lltrace_intr_leave(struct lltrace_cpu *llt, unsigned int type, unsigned int vec)
 
 void
 lltrace_lock(struct lltrace_cpu *llt, void *lock,
-    unsigned int type, unsigned int step)
+    unsigned int type, unsigned int step, unsigned long pc)
 {
+	uint64_t extra[1] = { pc };
+
 	uint64_t record = (uint64_t)type << LLTRACE_LK_TYPE_SHIFT;
 	record |= (uint64_t)step << LLTRACE_LK_PHASE_SHIFT;
 	record |= (uint64_t)lock << LLTRACE_LK_ADDR_SHIFT;
 
-	lltrace_insert(llt, LLTRACE_TYPE_LOCKING, record, NULL, 0);
+	lltrace_insert(llt, LLTRACE_TYPE_LOCKING, record, extra, nitems(extra));
 }
 
 void
