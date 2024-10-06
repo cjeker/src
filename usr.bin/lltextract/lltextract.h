@@ -19,12 +19,15 @@
 #include <sys/tree.h>
 
 struct ksym {
-	RBT_ENTRY(ksym)	 entry;
-	char		*name;
+	RBT_ENTRY(ksym)	 name_entry;
+	RBT_ENTRY(ksym)	 addr_entry;
+	const char	*name;
 	uint32_t	 addr;
 	uint32_t	 len;
 	unsigned int	 ref;
 };
 
+void		 ksym_load(void);
 struct ksym	*ksym_find(uint32_t);
 struct ksym	*ksym_nfind(uint32_t);
+struct ksym	*ksym_name(const char *);

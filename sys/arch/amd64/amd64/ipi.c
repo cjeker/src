@@ -60,9 +60,7 @@ x86_send_ipi(struct cpu_info *ci, int ipimask)
 int
 x86_fast_ipi(struct cpu_info *ci, int ipi)
 {
-#if 0
 	LLTRACE(lltrace_ipi, ci->ci_cpuid);
-#endif
 
 	if (!(ci->ci_flags & CPUF_RUNNING))
 		return (ENOENT);
