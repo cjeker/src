@@ -198,6 +198,7 @@ static unsigned int lltx_strid_acquire;
 static unsigned int lltx_strid_symbol;
 static unsigned int lltx_strid_offset;
 static unsigned int lltx_strid_count;
+static unsigned int lltx_strid_caller;
 
 static const char str_process[] = "process";
 static const char str_sched[] = "sched";
@@ -208,6 +209,7 @@ static const char str_acquire[] = "acquire";
 static const char str_symbol[] = "symbol";
 static const char str_offset[] = "offset";
 static const char str_count[] = "count";
+static const char str_caller[] = "caller";
 
 static const char *str_locks[1 << LLTRACE_LK_TYPE_WIDTH] = {
 	[LLTRACE_LK_RW] = "rwlock",
@@ -336,6 +338,7 @@ main(int argc, char *argv[])
 	lltx_strid_symbol = lltx_str(str_symbol);
 	lltx_strid_offset = lltx_str(str_offset);
 	lltx_strid_count = lltx_str(str_count);
+	lltx_strid_caller = lltx_str(str_caller);
 
 	for (i = 0; i < nitems(str_locks); i++) {
 		const char *str = str_locks[i];
@@ -1349,8 +1352,9 @@ lltx_locking(struct lltstate *state, struct llevent *lle, uint64_t record,
 	uint64_t nref;
 //	uint64_t tref;
 	uint64_t addr;
+	uint64_t pc;
 	size_t n;
-	struct ksym *k;
+	struct ksym *k, *kk;
 	int durev = -1;
 	unsigned int nargs = 1;
 
@@ -1414,6 +1418,14 @@ lltx_locking(struct lltstate *state, struct llevent *lle, uint64_t record,
 #endif
 	}
 
+	if (extralen != 0) {
+		pc = (uint32_t)extra[0];
+		kk = ksym_nfind(pc);
+		if (kk != NULL && kk->ref == 0) {
+			kk->ref = lltx_str(kk->name);
+		}
+	}
+
 	if (verbose >= 2) {
 		printf("#lk %zu[%zu] %llu cpu %u pid %llu tid %llu "
 		    "%s %s\n",
@@ -1432,7 +1444,7 @@ lltx_locking(struct lltstate *state, struct llevent *lle, uint64_t record,
 		size_t na = n++;
 		uint32_t diff;
 
-		fxt_atoms[na] = htole64(6 | (2 << 4));
+		fxt_atoms[na] = htole64(6 | (1 << 4));
 		fxt_atoms[na] |= htole64((uint64_t)lltx_strid_symbol << 16);
 		fxt_atoms[na] |= htole64((uint64_t)k->ref << 32);
 
@@ -1448,6 +1460,16 @@ lltx_locking(struct lltstate *state, struct llevent *lle, uint64_t record,
 
 			nargs++;
 		} 
+	}
+
+	if (extralen != 0 && kk != NULL) {
+		size_t na = n++;
+
+		fxt_atoms[na] = htole64(6 | (1 << 4));
+		fxt_atoms[na] |= htole64((uint64_t)lltx_strid_caller << 16);
+		fxt_atoms[na] |= htole64((uint64_t)kk->ref << 32);
+
+		nargs++;
 	}
 
 	fxt_atoms[0] = htole64(FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT));
