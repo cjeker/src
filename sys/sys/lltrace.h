@@ -276,7 +276,8 @@ void	lltrace_event_start(struct lltrace_cpu *, unsigned int);
 void	lltrace_event_end(struct lltrace_cpu *, unsigned int);
 void	lltrace_count(struct lltrace_cpu *, unsigned int, unsigned int);
 
-void	lltrace_lock(struct lltrace_cpu *, void *, unsigned int, unsigned int);
+void	lltrace_lock(struct lltrace_cpu *, void *, unsigned int, unsigned int,
+	    unsigned long);
 
 void	lltrace_pkts(struct lltrace_cpu *, unsigned int, unsigned int);
 void	lltrace_mark(struct lltrace_cpu *);
