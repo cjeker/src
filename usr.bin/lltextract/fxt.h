@@ -17,7 +17,7 @@
 #define FXT_MAX_WORDS		(1ULL << 12)
 
 #define FXT_RECORD(_type, _size) \
-    htole64(((_type) << FXT_H_TYPE_SHIFT) | ((_size) << FXT_H_SIZE_SHIFT))
+    (((_type) << FXT_H_TYPE_SHIFT) | ((_size) << FXT_H_SIZE_SHIFT))
 
 #define FXT_H_METADATA_TYPE_SHIFT	16
 #define FXT_H_METADATA_TYPE_BITS	4
@@ -26,5 +26,5 @@
     ((_mdtype) << FXT_H_METADATA_TYPE_SHIFT))
 
 #define FXT_INIT_MAGIC 0x0016547846040010
-#define FXT_INIT_RECORD(_f) FXT_RECORD(FXT_T_INIT, 2), htole64(_f)
+#define FXT_INIT_RECORD(_f) FXT_RECORD(FXT_T_INIT, 2), (_f)
 
