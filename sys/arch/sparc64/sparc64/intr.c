@@ -45,6 +45,7 @@
 #include <sys/systm.h>
 #include <sys/kernel.h>
 #include <sys/malloc.h>
+#include <sys/tracepoint.h>
 
 #include <dev/cons.h>
 
@@ -71,22 +72,12 @@ void	intr_ack(struct intrhand *);
 int
 intr_handler(struct trapframe *tf, struct intrhand *ih)
 {
-	struct cpu_info *ci = curcpu();
 	int rc;
 #ifdef MULTIPROCESSOR
 	int need_lock;
-#endif
 
-#if NLLT > 0
-	int lltype = LLTRACE_INTR_T_HW;
+	LLTRACE(lltrace_intr_enter, LLTRACE_INTR_T_HW, ih->ih_number);
 
-	if (tf->tf_pil == IPL_CLOCK || tf->tf_pil == IPL_STATCLOCK)
-		lltype = LLTRACE_INTR_T_CLOCK;
-	else if (ih->ih_pil < IPL_SOFTTTY)
-		lltype = LLTRACE_INTR_T_SW;
-	LLTRACE_CPU(ci, lltrace_intr_enter, type, ih->ih_arg);
-
-#ifdef MULTIPROCESSOR
 	if (ih->ih_mpsafe)
 		need_lock = 0;
 	else
@@ -95,17 +86,19 @@ intr_handler(struct trapframe *tf, struct intrhand *ih)
 	if (need_lock)
 		KERNEL_LOCK();
 #endif
-	LLTRACE_CPU(ci, lltrace_fn_enter, ih->ih_fun);
 	ci->ci_idepth++;
+	LLTRACE(lltrace_fn_enter, ih->ih_fun);
 	rc = (*ih->ih_fun)(ih->ih_arg ? ih->ih_arg : tf);
+	LLTRACE(lltrace_fn_leave, ih->ih_fun);
 	ci->ci_idepth--;
-	LLTRACE_CPU(ci, lltrace_fn_leave, ih->ih_fun);
 
 #ifdef MULTIPROCESSOR
 	if (need_lock)
 		KERNEL_UNLOCK();
 #endif
-	LLTRACE_CPU(ci, lltrace_intr_leave, type, ih->ih_arg);
+
+	LLTRACE(lltrace_intr_leave, LLTRACE_INTR_T_HW, ih->ih_number);
+
 	return rc;
 }
 
