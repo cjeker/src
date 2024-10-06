@@ -116,7 +116,8 @@ rw_enter_read(struct rwlock *rwl)
 		membar_enter_after_atomic();
 		WITNESS_CHECKORDER(&rwl->rwl_lock_obj, LOP_NEWORDER, NULL);
 		WITNESS_LOCK(&rwl->rwl_lock_obj, 0);
-		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_SHARED);
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_SHARED,
+		    (unsigned long)__builtin_return_address(0));
 	}
 }
 
@@ -133,7 +134,8 @@ rw_enter_write(struct rwlock *rwl)
 		WITNESS_CHECKORDER(&rwl->rwl_lock_obj,
 		    LOP_EXCLUSIVE | LOP_NEWORDER, NULL);
 		WITNESS_LOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
-		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_EXCL);
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_EXCL,
+		    (unsigned long)__builtin_return_address(0));
 	}
 }
 
@@ -143,7 +145,8 @@ rw_exit_read(struct rwlock *rwl)
 	unsigned long owner;
 
 	rw_assert_rdlock(rwl);
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_SHARED);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_SHARED,
+	    (unsigned long)__builtin_return_address(0));
 	WITNESS_UNLOCK(&rwl->rwl_lock_obj, 0);
 
 	membar_exit_before_atomic();
@@ -159,7 +162,8 @@ rw_exit_write(struct rwlock *rwl)
 	unsigned long owner;
 
 	rw_assert_wrlock(rwl);
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_SHARED);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_SHARED,
+	    (unsigned long)__builtin_return_address(0));
 	WITNESS_UNLOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
 
 	membar_exit_before_atomic();
@@ -261,7 +265,8 @@ rw_enter(struct rwlock *rwl, int flags)
 	op = &rw_ops[(flags & RW_OPMASK) - 1];
 
 	inc = op->inc + RW_PROC(curproc) * op->proc_mult;
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_START);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_START,
+	    (unsigned long)__builtin_return_address(0));
 retry:
 	while (__predict_false(((o = rwl->rwl_owner) & op->check) != 0)) {
 		unsigned long set = o | op->wait_set;
@@ -314,12 +319,13 @@ retry:
 	if (flags & RW_DOWNGRADE) {
 		WITNESS_DOWNGRADE(&rwl->rwl_lock_obj, lop_flags);
 		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
-		    LLTRACE_LK_DOWNGRADE);
+		    LLTRACE_LK_DOWNGRADE, (unsigned long)__builtin_return_address(0));
 	} else {
 		WITNESS_LOCK(&rwl->rwl_lock_obj, lop_flags);
 		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
 		    ISSET(flags, RW_WRITE) ?
-		    LLTRACE_LK_A_EXCL : LLTRACE_LK_A_SHARED);
+		    LLTRACE_LK_A_EXCL : LLTRACE_LK_A_SHARED,
+		    (unsigned long)__builtin_return_address(0));
 	}
 
 	/*
@@ -333,7 +339,8 @@ retry:
 
 	return (0);
 abort:
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_ABORT);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_ABORT,
+	    (unsigned long)__builtin_return_address(0));
 	return (error);
 }
 
@@ -352,7 +359,8 @@ rw_exit(struct rwlock *rwl)
 	else
 		rw_assert_rdlock(rwl);
 	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
-	    wrlock ? LLTRACE_LK_R_EXCL : LLTRACE_LK_R_SHARED);
+	    wrlock ? LLTRACE_LK_R_EXCL : LLTRACE_LK_R_SHARED,
+		(unsigned long)__builtin_return_address(0));
 	WITNESS_UNLOCK(&rwl->rwl_lock_obj, wrlock ? LOP_EXCLUSIVE : 0);
 
 	membar_exit_before_atomic();
