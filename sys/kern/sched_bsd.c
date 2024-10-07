@@ -339,7 +339,7 @@ preempt(void)
 	p->p_ru.ru_nivcsw++;
 	mi_switch();
 	SCHED_UNLOCK();
-	LLTRACE(lltrace_fn_enter, preempt);
+	LLTRACE(lltrace_fn_leave, preempt);
 }
 
 void
