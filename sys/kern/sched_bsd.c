@@ -341,7 +341,7 @@ preempt(void)
 	setrunqueue(p->p_cpu, p, p->p_usrpri);
 	p->p_ru.ru_nivcsw++;
 	mi_switch();
-	LLTRACE(lltrace_fn_enter, preempt);
+	LLTRACE(lltrace_fn_leave, preempt);
 }
 
 void
