@@ -312,6 +312,8 @@ main(int argc, char *argv[])
 	if (ifname == NULL || ofname == NULL)
 		usage();
 
+	ksym_load();
+
 	ifile = fopen(ifname, "r");
 	if (ifile == NULL)
 		err(1, "%s", ifname);
