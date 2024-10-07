@@ -232,6 +232,19 @@ static const char *str_lock_ops[1 << LLTRACE_LK_PHASE_WIDTH] = {
 };
 static unsigned int lltx_strids_lock_ops[1 << LLTRACE_LK_PHASE_WIDTH];
 
+static const uint64_t lltx_lock_ops[1 << LLTRACE_LK_PHASE_WIDTH] = {
+	[LLTRACE_LK_I_EXCL] = 0 << 16,
+	[LLTRACE_LK_I_SHARED] = 0 << 16,
+	[LLTRACE_LK_A_START] = 2 << 16,
+	[LLTRACE_LK_A_EXCL] =  3 << 16,
+	[LLTRACE_LK_A_SHARED] = 3 << 16,
+	[LLTRACE_LK_A_ABORT] = 3 << 16,
+	[LLTRACE_LK_DOWNGRADE] = 0 << 16,
+	[LLTRACE_LK_R_EXCL] = 0 << 16,
+	[LLTRACE_LK_R_SHARED] = 0 << 16,
+	[LLTRACE_LK_I_FAIL] = 0 << 16,
+};
+
 static struct lltx_fxt_heap lltx_records = HEAP_INITIALIZER();
 
 static void
@@ -1355,9 +1368,9 @@ lltx_locking(struct lltstate *state, struct llevent *lle, uint64_t record,
 //	uint64_t tref;
 	uint64_t addr;
 	uint64_t pc;
+	uint64_t ev;
 	size_t n;
 	struct ksym *k, *kk;
-	int durev = -1;
 	unsigned int nargs = 1;
 
 	ltype = (record >> LLTRACE_LK_TYPE_SHIFT) & LLTRACE_LK_TYPE_MASK;
@@ -1377,31 +1390,7 @@ lltx_locking(struct lltstate *state, struct llevent *lle, uint64_t record,
 
 //	tref = lltx_thrid(state->p);
 
-	switch (lop) {
-	case LLTRACE_LK_A_START:
-		durev = 2;
-		break;
-	case LLTRACE_LK_A_EXCL:
-	case LLTRACE_LK_A_SHARED:
-	case LLTRACE_LK_A_ABORT:
-		durev = 3;
-		break;
-	}
-
-	if (0 && ltype == LLTRACE_LK_RW && durev != -1) {
-		n = 1;
-		fxt_atoms[n++] = htole64(state->ns);
-		fxt_atoms[n++] = htole64(p->p_p->ps_fxtid);
-		fxt_atoms[n++] = htole64(p->p_fxtid);
-
-		fxt_atoms[0] = htole64(FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT));
-		fxt_atoms[0] |= htole64((uint64_t)durev << 16); /* duration begin */
-		fxt_atoms[0] |= htole64(cref << 32);
-		fxt_atoms[0] |= htole64((uint64_t)lltx_strid_acquire << 48);
-
-		//fxt_write(fxt_atoms, n, ofile);
-		fxt_insert(state->ns, fxt_atoms, n);
-	}
+	ev = lltx_lock_ops[lop];
 
 	k = ksym_nfind(addr);
 	if (k != NULL && k->ref == 0) {
@@ -1475,7 +1464,7 @@ lltx_locking(struct lltstate *state, struct llevent *lle, uint64_t record,
 	}
 
 	fxt_atoms[0] = htole64(FXT_T_EVENT | (n << FXT_H_SIZE_SHIFT));
-	fxt_atoms[0] |= htole64(0 << 16); /* instant event */
+	fxt_atoms[0] |= htole64(ev);
 	fxt_atoms[0] |= htole64(nargs << 20);
 //	fxt_atoms[0] |= htole64(tref << 24);
 	fxt_atoms[0] |= htole64(cref << 32);
