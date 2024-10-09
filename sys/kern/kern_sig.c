@@ -1401,13 +1401,17 @@ cursig(struct proc *p, struct sigctx *sctx)
 			 * process group, ignore tty stop signals.
 			 */
 			if (prop & SA_STOP) {
+				int wakeparent;
 				if (pr->ps_flags & PS_TRACED ||
 		    		    (pr->ps_pgrp->pg_jobc == 0 &&
 				    prop & SA_TTYSTOP))
 					break;	/* == ignore */
 				mtx_enter(&pr->ps_mtx);
 				pr->ps_xsig = signum;
-				if (process_stop(p, PS_STOPPED))
+				SCHED_LOCK();
+				wakeparent = process_stop(p, PS_STOPPED);
+				SCHED_UNLOCK();
+				if (wakeparent)
 					process_stopped(p);
 				mtx_leave(&pr->ps_mtx);
 				proc_stop(p, P_SUSPSIG);
@@ -1465,6 +1469,7 @@ int
 proc_trap(struct proc *p, int signum)
 {
 	struct process *pr = p->p_p;
+	int wakeparent;
 
 	mtx_enter(&pr->ps_mtx);
 	while (1) {
@@ -1489,7 +1494,10 @@ proc_trap(struct proc *p, int signum)
 	pr->ps_trapped = p;
 	atomic_setbits_int(&p->p_flag, P_SUSPTRAPPED);
 
-	if (process_stop(p, PS_TRAPPED))
+	SCHED_LOCK();
+	wakeparent = process_stop(p, PS_TRAPPED);
+	SCHED_UNLOCK();
+	if (wakeparent)
 		process_stopped(p);
 	mtx_leave(&pr->ps_mtx);
 
@@ -1534,7 +1542,11 @@ process_stop(struct proc *p, int why)
 	TAILQ_FOREACH(q, &pr->ps_threads, p_thr_link) {
 		if (q == p)
 			continue;
-		SCHED_LOCK();
+		/* XXX right now this is called with the SCHED_LOCK already
+		 * held but in the future that will change.
+		 */
+		/*XXX SCHED_LOCK(); */
+		SCHED_ASSERT_LOCKED();
 		switch (q->p_stat) {
 		case SSTOP:
 			pr->ps_stopcnt--;
@@ -1555,7 +1567,7 @@ process_stop(struct proc *p, int why)
 		case SDEAD:
 			break;
 		}
-		SCHED_UNLOCK();
+		/*XXX SCHED_UNLOCK(); */
 	}
 	/* count ourselfs out */
 	pr->ps_stopcnt--;
