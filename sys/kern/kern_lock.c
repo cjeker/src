@@ -253,6 +253,10 @@ mtx_enter(struct mutex *mtx)
 	unsigned int lltev = LLTRACE_LK_I_EXCL;
 #endif
 
+	/* Avoid deadlocks after panic or in DDB */
+	if (panicstr || db_active)
+		return;
+
 	WITNESS_CHECKORDER(MUTEX_LOCK_OBJECT(mtx),
 	    LOP_EXCLUSIVE | LOP_NEWORDER, NULL);
 
