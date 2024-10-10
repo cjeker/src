@@ -623,8 +623,8 @@ sdmmc_scsi_hibernate_io(dev_t dev, daddr_t blkno, vaddr_t addr, size_t size,
 		state->sdmmc_sf.sc = &state->sdmmc_sc;
 
 		/* pretend we own the lock */
-		state->sdmmc_sc.sc_lock.rwl_owner =
-		    (((long)curproc) & ~RWLOCK_MASK) | RWLOCK_WRLOCK;
+		state->sdmmc_sc.sc_lock.rwl_state = RW_WRITE;
+		state->sdmmc_sc.sc_lock.rwl_owner = curproc;
 
 		/* build chip layer fake softc */
 		error = state->sdmmc_sc.sct->hibernate_init(state->sdmmc_sc.sch,

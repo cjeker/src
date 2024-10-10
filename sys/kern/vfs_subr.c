@@ -246,10 +246,7 @@ vfs_unbusy(struct mount *mp)
 int
 vfs_isbusy(struct mount *mp)
 {
-	if (RWLOCK_OWNER(&mp->mnt_lock) > 0)
-		return (1);
-	else
-		return (0);
+	return (rw_status(&mp->mnt_lock) != 0);
 }
 
 /*

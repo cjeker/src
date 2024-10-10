@@ -57,12 +57,19 @@
 #include <sys/_lock.h>
 
 struct proc;
+struct rwlock_waiter;
 
 struct rwlock {
-	volatile unsigned long	 rwl_owner;
-	const char		*rwl_name;
+	unsigned int		  rwl_lock;
+	unsigned int		  rwl_state;
+	unsigned int		  rwl_readers;
+	unsigned int		  rwl_depth;
+	struct proc		 *rwl_owner;
+	const char		 *rwl_name;
+	struct rwlock_waiter	 *rwl_head;
+	struct rwlock_waiter	**rwl_tail;
 #ifdef WITNESS
-	struct lock_object	 rwl_lock_obj;
+	struct lock_object	  rwl_lock_obj;
 #endif
 };
 
@@ -90,22 +97,28 @@ struct rwlock {
 #define RWL_IS_VNODE		0x04
 
 #ifdef WITNESS
-#define RWLOCK_INITIALIZER(name) \
-	{ 0, name, .rwl_lock_obj = RWLOCK_LO_INITIALIZER(name, 0) }
+#define RWLOCK_INITIALIZER(name) {				\
+	.rwl_lock = 0,						\
+	.rwl_state = 0,						\
+	.rwl_readers = 0,					\
+	.rwl_depth = 0,						\
+	.rwl_owner = NULL,					\
+	.rwl_name = name,					\
+	.rwl_head = NULL,					\
+	.rwl_tail = NULL,					\
+	.rwl_lock_obj = RWLOCK_LO_INITIALIZER(name, 0)		\
+}
 #else
-#define RWLOCK_INITIALIZER(name) \
-	{ 0, name }
+#define RWLOCK_INITIALIZER(name) {		\
+	.rwl_lock = 0,				\
+	.rwl_state = 0,				\
+	.rwl_readers = 0,			\
+	.rwl_owner = NULL,			\
+	.rwl_name = name,			\
+	.rwl_head = NULL,			\
+	.rwl_tail = NULL,			\
+}
 #endif
-
-#define RWLOCK_WAIT		0x01UL
-#define RWLOCK_WRWANT		0x02UL
-#define RWLOCK_WRLOCK		0x04UL
-#define RWLOCK_MASK		0x07UL
-
-#define RWLOCK_OWNER(rwl)	((struct proc *)((rwl)->rwl_owner & ~RWLOCK_MASK))
-
-#define RWLOCK_READER_SHIFT	3UL
-#define RWLOCK_READ_INCR	(1UL << RWLOCK_READER_SHIFT)
 
 #define RW_WRITE		0x0001UL /* exclusive lock */
 #define RW_READ			0x0002UL /* shared lock */
@@ -122,12 +135,11 @@ struct rwlock {
  * for rw_status() and rrw_status() only: exclusive lock held by
  * some other thread
  */
-#define RW_WRITE_OTHER		0x0100UL
+#define RW_WRITE_OTHER		0x0200UL
 
 /* recursive rwlocks; */
 struct rrwlock {
 	struct rwlock		 rrwl_lock;
-	uint32_t		 rrwl_wcnt; /* # writers. */
 };
 
 #ifdef _KERNEL

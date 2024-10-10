@@ -27,15 +27,16 @@
 #include <sys/witness.h>
 #include <sys/tracepoint.h>
 
-void	rw_do_exit(struct rwlock *, unsigned long);
-
-/* XXX - temporary measure until proc0 is properly aligned */
-#define RW_PROC(p) (((long)p) & ~RWLOCK_MASK)
-
 struct rwlock_waiter {
-	struct proc		*w_proc;
-	struct rwlock_waiter	*w_next;
+	volatile unsigned int	  rww_wait;
+	struct proc		 *rww_owner;
+	struct rwlock_waiter	**rww_prev;
+	struct rwlock_waiter	 *rww_next;
 };
+
+static int rw_write(struct rwlock *, int);
+static int rw_read(struct rwlock *, int);
+static int rw_downgrade(struct rwlock *, int);
 
 /*
  * Other OSes implement more sophisticated mechanism to determine how long the
@@ -45,180 +46,18 @@ struct rwlock_waiter {
  */
 #define RW_SPINS	1000
 
-#ifdef MULTIPROCESSOR
-#define rw_cas(p, o, n)	(atomic_cas_ulong(p, o, n) != o)
-#else
-static inline int
-rw_cas(volatile unsigned long *p, unsigned long o, unsigned long n)
-{
-	if (*p != o)
-		return (1);
-	*p = n;
-
-	return (0);
-}
-#endif
-
-/*
- * Magic wand for lock operations. Every operation checks if certain
- * flags are set and if they aren't, it increments the lock with some
- * value (that might need some computing in a few cases). If the operation
- * fails, we need to set certain flags while waiting for the lock.
- *
- * RW_WRITE	The lock must be completely empty. We increment it with
- *		RWLOCK_WRLOCK and the proc pointer of the holder.
- *		Sets RWLOCK_WAIT|RWLOCK_WRWANT while waiting.
- * RW_READ	RWLOCK_WRLOCK|RWLOCK_WRWANT may not be set. We increment
- *		with RWLOCK_READ_INCR. RWLOCK_WAIT while waiting.
- */
-static const struct rwlock_op {
-	unsigned long inc;
-	unsigned long check;
-	unsigned long wait_set;
-	long proc_mult;
-	int wait_prio;
-} rw_ops[] = {
-	{	/* RW_WRITE */
-		RWLOCK_WRLOCK,
-		ULONG_MAX,
-		RWLOCK_WAIT | RWLOCK_WRWANT,
-		1,
-		PLOCK - 4
-	},
-	{	/* RW_READ */
-		RWLOCK_READ_INCR,
-		RWLOCK_WRLOCK | RWLOCK_WRWANT,
-		RWLOCK_WAIT,
-		0,
-		PLOCK
-	},
-	{	/* Sparse Entry. */
-		0,
-	},
-	{	/* RW_DOWNGRADE */
-		RWLOCK_READ_INCR - RWLOCK_WRLOCK,
-		0,
-		0,
-		-1,
-		PLOCK
-	},
-};
-
-void
-rw_enter_read(struct rwlock *rwl)
-{
-	unsigned long owner = rwl->rwl_owner;
-
-	if (__predict_false((owner & (RWLOCK_WRLOCK | RWLOCK_WRWANT)) ||
-	    rw_cas(&rwl->rwl_owner, owner, owner + RWLOCK_READ_INCR)))
-		rw_enter(rwl, RW_READ);
-	else {
-		membar_enter_after_atomic();
-		WITNESS_CHECKORDER(&rwl->rwl_lock_obj, LOP_NEWORDER, NULL);
-		WITNESS_LOCK(&rwl->rwl_lock_obj, 0);
-		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_SHARED,
-		    (unsigned long)__builtin_return_address(0));
-	}
-}
-
-void
-rw_enter_write(struct rwlock *rwl)
-{
-	struct proc *p = curproc;
-
-	if (__predict_false(rw_cas(&rwl->rwl_owner, 0,
-	    RW_PROC(p) | RWLOCK_WRLOCK)))
-		rw_enter(rwl, RW_WRITE);
-	else {
-		membar_enter_after_atomic();
-		WITNESS_CHECKORDER(&rwl->rwl_lock_obj,
-		    LOP_EXCLUSIVE | LOP_NEWORDER, NULL);
-		WITNESS_LOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
-		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_EXCL,
-		    (unsigned long)__builtin_return_address(0));
-	}
-}
-
-void
-rw_exit_read(struct rwlock *rwl)
-{
-	unsigned long owner;
-
-	rw_assert_rdlock(rwl);
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_SHARED,
-	    (unsigned long)__builtin_return_address(0));
-	WITNESS_UNLOCK(&rwl->rwl_lock_obj, 0);
-
-	membar_exit_before_atomic();
-	owner = rwl->rwl_owner;
-	if (__predict_false((owner & RWLOCK_WAIT) ||
-	    rw_cas(&rwl->rwl_owner, owner, owner - RWLOCK_READ_INCR)))
-		rw_do_exit(rwl, 0);
-}
-
-void
-rw_exit_write(struct rwlock *rwl)
-{
-	unsigned long owner;
-
-	rw_assert_wrlock(rwl);
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_SHARED,
-	    (unsigned long)__builtin_return_address(0));
-	WITNESS_UNLOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
-
-	membar_exit_before_atomic();
-	owner = rwl->rwl_owner;
-	if (__predict_false((owner & RWLOCK_WAIT) ||
-	    rw_cas(&rwl->rwl_owner, owner, 0)))
-		rw_do_exit(rwl, RWLOCK_WRLOCK);
-}
-
-#ifdef DIAGNOSTIC
-/*
- * Put the diagnostic functions here to keep the main code free
- * from ifdef clutter.
- */
-static void
-rw_enter_diag(struct rwlock *rwl, int flags)
-{
-	switch (flags & RW_OPMASK) {
-	case RW_WRITE:
-	case RW_READ:
-		if (RW_PROC(curproc) == RW_PROC(rwl->rwl_owner))
-			panic("rw_enter: %s locking against myself",
-			    rwl->rwl_name);
-		break;
-	case RW_DOWNGRADE:
-		/*
-		 * If we're downgrading, we must hold the write lock.
-		 */
-		if ((rwl->rwl_owner & RWLOCK_WRLOCK) == 0)
-			panic("rw_enter: %s downgrade of non-write lock",
-			    rwl->rwl_name);
-		if (RW_PROC(curproc) != RW_PROC(rwl->rwl_owner))
-			panic("rw_enter: %s downgrade, not holder",
-			    rwl->rwl_name);
-		break;
-
-	default:
-		panic("rw_enter: unknown op 0x%x", flags);
-	}
-}
-
-#else
-#define rw_enter_diag(r, f)
-#endif
-
 static void
 _rw_init_flags_witness(struct rwlock *rwl, const char *name, int lo_flags,
     const struct lock_type *type)
 {
-	rwl->rwl_owner = 0;
+	rwl->rwl_lock = 0;
+	rwl->rwl_state = 0;
+	rwl->rwl_readers = 0;
+	rwl->rwl_depth = 0;
+	rwl->rwl_owner = NULL;
 	rwl->rwl_name = name;
-#if 0
-	rwl->rwl_next = NULL;
-	rwl->rwl_tail = &rwl->rwl_next;
-#endif
+	rwl->rwl_head = NULL;
+	rwl->rwl_tail = &rwl->rwl_head;
 
 #ifdef WITNESS
 	rwl->rwl_lock_obj.lo_flags = lo_flags;
@@ -238,174 +77,452 @@ _rw_init_flags(struct rwlock *rwl, const char *name, int flags,
 	_rw_init_flags_witness(rwl, name, RWLOCK_LO_FLAGS(flags), type);
 }
 
+#ifdef MULTIPROCESSOR
+static inline void
+rw_lock_enter(struct rwlock *rwl)
+{
+	while (atomic_cas_uint(&rwl->rwl_lock, 0, 1) != 0) {
+		do {
+			CPU_BUSY_CYCLE();
+		} while (atomic_load_int(&rwl->rwl_lock) != 0);
+	}
+	membar_enter_after_atomic();
+}
+
+static inline void
+rw_lock_leave(struct rwlock *rwl)
+{
+	atomic_store_int(&rwl->rwl_lock, 0);
+}
+#else /* MULTIPROCESSOR */
+static inline void
+rw_lock_enter(struct rwlock *rwl)
+{
+	rwl->rwl_lock = 1;
+}
+
+static inline void
+rw_lock_leave(struct rwlock *rwl)
+{
+	rwl->rwl_lock = 0;
+}
+#endif /* MULTIPROCESSOR */
+
+static inline void
+rw_insert(struct rwlock *rwl, struct rwlock_waiter *rww)
+{
+	struct rwlock_waiter **tail = rwl->rwl_tail;
+
+	if (__predict_false(tail == NULL))
+		tail = &rwl->rwl_head;
+
+	rww->rww_next = NULL;
+	rww->rww_prev = tail;
+
+	*tail = rww;
+	rwl->rwl_tail = &rww->rww_next;
+}
+
+static inline struct rwlock_waiter *
+rw_first(struct rwlock *rwl)
+{
+	return (rwl->rwl_head);
+}
+
+static inline void
+rw_remove(struct rwlock *rwl, struct rwlock_waiter *rww)
+{
+	if (rww->rww_next != NULL)
+		rww->rww_next->rww_prev = rww->rww_prev;
+	else
+		rwl->rwl_tail = rww->rww_prev;
+	*rww->rww_prev = rww->rww_next;
+}
+
+static int
+rw_write(struct rwlock *rwl, int flags)
+{
+	struct proc *self = curproc;
+	unsigned int state;
+	struct rwlock_waiter waiter = { .rww_wait = 1, .rww_owner = self };
+	int prio = PLOCK - 4;
+
+	/* Avoid deadlocks after panic or in DDB */
+	if (panicstr || db_active)
+		return (0);
+
+#ifdef WITNESS
+	if (!ISSET(flags, RW_NOSLEEP)) {
+		int lop_flags = LOP_NEWORDER | LOP_EXCLUSIVE;
+		if (ISSET(flags, RW_DUPOK))
+			lop_flags |= LOP_DUPOK;
+		WITNESS_CHECKORDER(&rwl->rwl_lock_obj, lop_flags, NULL);
+	}
+#endif
+
+	rw_lock_enter(rwl);
+	state = rwl->rwl_state;
+	if (state == 0) {
+		KASSERT(rwl->rwl_owner == NULL);
+		KASSERT(rwl->rwl_depth == 0);
+		rwl->rwl_state = RW_WRITE;
+		rwl->rwl_owner = self;
+		rwl->rwl_depth = 1;
+	} else {
+		if (rwl->rwl_owner == self) {
+			KASSERT(state == RW_WRITE);
+			rw_lock_leave(rwl);
+			/* for rrwlocks to handle */
+			return (EDEADLK);
+		}
+		if (ISSET(flags, RW_NOSLEEP)) {
+			rw_lock_leave(rwl);
+			return (EBUSY);
+		}
+		rw_insert(rwl, &waiter);
+	}
+	rw_lock_leave(rwl);
+
+	if (state == 0) {
+		membar_enter_after_atomic();
+		WITNESS_LOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_EXCL,
+		    (unsigned long)__builtin_return_address(0));
+		return (0);
+	}
+
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_START,
+	    (unsigned long)__builtin_return_address(0));
+
+#ifdef MULTIPROCESSOR
+	if (!_kernel_lock_held()) {
+		unsigned int i;
+
+		for (i = 0; i < RW_SPINS; i++) {
+			CPU_BUSY_CYCLE();
+			if (!atomic_load_int(&waiter.rww_wait))
+				goto locked;
+		}
+	}
+#endif
+
+	if (ISSET(flags, RW_INTR))
+		prio |= PCATCH;
+
+	do {
+		int error;
+
+		sleep_setup(&waiter, prio, rwl->rwl_name);
+		error = sleep_finish(0, atomic_load_int(&waiter.rww_wait));
+		if (ISSET(flags, RW_INTR) && (error != 0)) {
+			rw_lock_enter(rwl);
+			if (waiter.rww_wait)
+				rw_remove(rwl, &waiter);
+			else {
+				KASSERT(rwl->rwl_state == RW_WRITE);
+				KASSERT(rwl->rwl_owner == self);
+				error = 0;
+			}
+			rw_lock_leave(rwl);
+			if (error != 0) {
+				LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
+				    LLTRACE_LK_A_ABORT,
+				    (unsigned long)__builtin_return_address(0));
+				return (error);
+			}
+
+			goto locked;
+		}
+	} while (atomic_load_int(&waiter.rww_wait));
+
+locked:
+	WITNESS_LOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_EXCL,
+	    (unsigned long)__builtin_return_address(0));
+	if (ISSET(flags, RW_SLEEPFAIL)) {
+		rw_exit(rwl);
+		return (EAGAIN);
+	}
+
+	__builtin_prefetch(rwl, 1);
+	membar_enter();
+	return (0);
+}
+
+void
+rw_enter_write(struct rwlock *rwl)
+{
+	int error;
+
+	error = rw_write(rwl, 0);
+	if (error == EDEADLK)
+		panic("%s(%p): %s deadlock", __func__, rwl, rwl->rwl_name);
+}
+
+void
+rw_exit_write(struct rwlock *rwl)
+{
+	rw_exit(rwl);
+}
+
+static int
+rw_read(struct rwlock *rwl, int flags)
+{
+	struct proc *self = curproc;
+	struct proc *owner = NULL;
+	unsigned int state;
+	int prio = PLOCK;
+
+	/* Avoid deadlocks after panic or in DDB */
+	if (panicstr || db_active)
+		return (0);
+
+#ifdef WITNESS
+	if (!ISSET(flags, RW_NOSLEEP)) {
+		int lop_flags = LOP_NEWORDER;
+		if (ISSET(flags, RW_DUPOK))
+			lop_flags |= LOP_DUPOK;
+		WITNESS_CHECKORDER(&rwl->rwl_lock_obj, lop_flags, NULL);
+	}
+#endif
+
+	rw_lock_enter(rwl);
+	state = rwl->rwl_state;
+	switch (state) {
+	case 0:
+		rwl->rwl_state = state = RW_READ;
+		break;
+	case RW_WRITE:
+		owner = rwl->rwl_owner;
+		KASSERT(owner != NULL);
+		KASSERT(owner != self);
+		if (ISSET(flags, RW_NOSLEEP)) {
+			rw_lock_leave(rwl);
+			return (EBUSY);
+		}
+		break;
+	}
+	rwl->rwl_readers++;
+	rw_lock_leave(rwl);
+
+	if (state == RW_READ) {
+		WITNESS_LOCK(&rwl->rwl_lock_obj, 0);
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_SHARED,
+		    (unsigned long)__builtin_return_address(0));
+		membar_enter_after_atomic();
+		return (0);
+	}
+
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_START,
+	    (unsigned long)__builtin_return_address(0));
+
+#ifdef MULTIPROCESSOR
+	if (!_kernel_lock_held()) {
+		unsigned int i;
+
+		for (i = 0; i < RW_SPINS; i++) {
+			CPU_BUSY_CYCLE();
+			state = atomic_load_int(&rwl->rwl_state);
+			if (state == RW_READ)
+				goto locked;
+		}
+#endif
+	}
+
+	if (ISSET(flags, RW_INTR))
+		prio |= PCATCH;
+
+	do {
+		int error;
+
+		sleep_setup(&rwl->rwl_readers, prio, rwl->rwl_name);
+		state = atomic_load_int(&rwl->rwl_state);
+		error = sleep_finish(0, state != RW_READ);
+		if (ISSET(flags, RW_INTR) && (error != 0)) {
+			rw_lock_enter(rwl);
+			if (rwl->rwl_state != RW_READ) {
+				KASSERT(rwl->rwl_readers > 0);
+				rwl->rwl_readers--;
+			} else
+				error = 0;
+			rw_lock_leave(rwl);
+			if (error != 0) {
+				LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
+				    LLTRACE_LK_A_ABORT,
+				    (unsigned long)__builtin_return_address(0));
+				return (error);
+			}
+			goto locked;
+		}
+		state = atomic_load_int(&rwl->rwl_state);
+	} while (state != RW_READ);
+
+locked:
+	WITNESS_LOCK(&rwl->rwl_lock_obj, 0);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_SHARED,
+	    (unsigned long)__builtin_return_address(0));
+	if (ISSET(flags, RW_SLEEPFAIL)) {
+		rw_exit(rwl);
+		return (EAGAIN);
+	}
+
+	membar_enter();
+	return (0);
+}
+
+void
+rw_enter_read(struct rwlock *rwl)
+{
+	rw_read(rwl, 0);
+}
+
+void
+rw_exit_read(struct rwlock *rwl)
+{
+	rw_exit(rwl);
+}
+
+static int
+rw_downgrade(struct rwlock *rwl, int flags)
+{
+	struct proc *self = curproc;
+	int nwake;
+
+	/* Avoid deadlocks after panic or in DDB */
+	if (panicstr || db_active)
+		return (0);
+
+	rw_lock_enter(rwl);
+	KASSERT(rwl->rwl_state == RW_WRITE);
+	KASSERT(rwl->rwl_owner == self);
+	KASSERT(rwl->rwl_depth == 1);
+	nwake = rwl->rwl_readers++;
+	rwl->rwl_owner = NULL;
+	rwl->rwl_state = RW_READ;
+	rw_lock_leave(rwl);
+
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_DOWNGRADE,
+	    (unsigned long)__builtin_return_address(0));
+	WITNESS_DOWNGRADE(&rwl->rwl_lock_obj, 0);
+
+	if (nwake > 0)
+		wakeup(&rwl->rwl_readers);
+
+	return (0);
+}
+
 int
 rw_enter(struct rwlock *rwl, int flags)
 {
-	const struct rwlock_op *op;
-	unsigned long inc, o;
-#ifdef MULTIPROCESSOR
-	/*
-	 * If process holds the kernel lock, then we want to give up on CPU
-	 * as soon as possible so other processes waiting for the kernel lock
-	 * can progress. Hence no spinning if we hold the kernel lock.
-	 */
-	unsigned int spin = (_kernel_lock_held()) ? 0 : RW_SPINS;
-#endif
-	int error, prio;
-#ifdef WITNESS
-	int lop_flags;
+	int op = flags & RW_OPMASK;
+	int error;
 
-	lop_flags = LOP_NEWORDER;
-	if (flags & RW_WRITE)
-		lop_flags |= LOP_EXCLUSIVE;
-	if (flags & RW_DUPOK)
-		lop_flags |= LOP_DUPOK;
-	if ((flags & RW_NOSLEEP) == 0 && (flags & RW_DOWNGRADE) == 0)
-		WITNESS_CHECKORDER(&rwl->rwl_lock_obj, lop_flags, NULL);
-#endif
-
-	op = &rw_ops[(flags & RW_OPMASK) - 1];
-
-	inc = op->inc + RW_PROC(curproc) * op->proc_mult;
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_START,
-	    (unsigned long)__builtin_return_address(0));
-retry:
-	while (__predict_false(((o = rwl->rwl_owner) & op->check) != 0)) {
-		unsigned long set = o | op->wait_set;
-		int do_sleep;
-
-		/* Avoid deadlocks after panic or in DDB */
-		if (panicstr || db_active)
-			return (0);
-
-#ifdef MULTIPROCESSOR
-		/*
-		 * It makes sense to try to spin just in case the lock
-		 * is acquired by writer.
-		 */
-		if ((o & RWLOCK_WRLOCK) && (spin != 0)) {
-			spin--;
-			CPU_BUSY_CYCLE();
-			continue;
+	switch (op) {
+	case RW_WRITE:
+		error = rw_write(rwl, flags);
+		if (error == EDEADLK) {
+			panic("%s(%p): %s deadlock", __func__, rwl,
+			    rwl->rwl_name);
 		}
-#endif
-
-		rw_enter_diag(rwl, flags);
-
-		if (flags & RW_NOSLEEP) {
-			error = EBUSY;
-			goto abort;
-		}
-
-		prio = op->wait_prio;
-		if (flags & RW_INTR)
-			prio |= PCATCH;
-		sleep_setup(rwl, prio, rwl->rwl_name);
-
-		do_sleep = !rw_cas(&rwl->rwl_owner, o, set);
-
-		error = sleep_finish(0, do_sleep);
-		if ((flags & RW_INTR) &&
-		    (error != 0))
-			goto abort;
-		if (flags & RW_SLEEPFAIL) {
-			error = EAGAIN;
-			goto abort;
-		}
+		break;
+	case RW_READ:
+		error = rw_read(rwl, flags);
+		break;
+	case RW_DOWNGRADE:
+		error = rw_downgrade(rwl, flags);
+		break;
+	default:
+		panic("%s(%p, 0x%x): unknown op 0x%x", __func__, rwl, flags,
+		    op);
+		/* NOTREACHED */
 	}
 
-	if (__predict_false(rw_cas(&rwl->rwl_owner, o, o + inc)))
-		goto retry;
-	membar_enter_after_atomic();
-
-	if (flags & RW_DOWNGRADE) {
-		WITNESS_DOWNGRADE(&rwl->rwl_lock_obj, lop_flags);
-		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
-		    LLTRACE_LK_DOWNGRADE, (unsigned long)__builtin_return_address(0));
-	} else {
-		WITNESS_LOCK(&rwl->rwl_lock_obj, lop_flags);
-		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
-		    ISSET(flags, RW_WRITE) ?
-		    LLTRACE_LK_A_EXCL : LLTRACE_LK_A_SHARED,
-		    (unsigned long)__builtin_return_address(0));
-	}
-
-	/*
-	 * If old lock had RWLOCK_WAIT and RWLOCK_WRLOCK set, it means we
-	 * downgraded a write lock and had possible read waiter, wake them
-	 * to let them retry the lock.
-	 */
-	if (__predict_false((o & (RWLOCK_WRLOCK|RWLOCK_WAIT)) ==
-	    (RWLOCK_WRLOCK|RWLOCK_WAIT)))
-		wakeup(rwl);
-
-	return (0);
-abort:
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_ABORT,
-	    (unsigned long)__builtin_return_address(0));
 	return (error);
 }
 
 void
 rw_exit(struct rwlock *rwl)
 {
-	unsigned long wrlock;
+	struct proc *self = curproc;
+	struct rwlock_waiter *rww;
+	void *wchan = NULL;
+	int wrlock = 0;
 
 	/* Avoid deadlocks after panic or in DDB */
 	if (panicstr || db_active)
 		return;
 
-	wrlock = rwl->rwl_owner & RWLOCK_WRLOCK;
-	if (wrlock)
-		rw_assert_wrlock(rwl);
-	else
-		rw_assert_rdlock(rwl);
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
-	    wrlock ? LLTRACE_LK_R_EXCL : LLTRACE_LK_R_SHARED,
-		(unsigned long)__builtin_return_address(0));
+	rw_lock_enter(rwl);
+	switch (rwl->rwl_state) {
+	case RW_WRITE:
+		KASSERT(rwl->rwl_owner == self);
+		wrlock = 1;
+		if (--rwl->rwl_depth > 0)
+			goto leave;
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_EXCL,
+		    (unsigned long)__builtin_return_address(0));
+		break;
+	case RW_READ:
+		KASSERT(rwl->rwl_owner == NULL);
+		if (--rwl->rwl_readers > 0)
+			goto leave;
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_SHARED,
+		    (unsigned long)__builtin_return_address(0));
+		break;
+	default:
+		panic("%s(%p): %s unexpected state %u", __func__, rwl,
+		    rwl->rwl_name, rwl->rwl_state);
+		/* NOTREACHED */
+	}
+	membar_exit();
+
+	rww = rw_first(rwl);
+	if (rww != NULL) {
+		rw_remove(rwl, rww);
+
+		/* move ownership */
+		rwl->rwl_state = RW_WRITE;
+		rwl->rwl_owner = rww->rww_owner;
+		rwl->rwl_depth = 1;
+
+		wchan = rww;
+
+		atomic_store_int(&rww->rww_wait, 0);
+	} else {
+		rwl->rwl_owner = NULL;
+
+		if (rwl->rwl_readers > 0) {
+			wchan = &rwl->rwl_readers;
+			rwl->rwl_state = RW_READ;
+		} else
+			rwl->rwl_state = 0;
+	}
+leave:
+	rw_lock_leave(rwl);
+
 	WITNESS_UNLOCK(&rwl->rwl_lock_obj, wrlock ? LOP_EXCLUSIVE : 0);
+	(void)wrlock;
 
-	membar_exit_before_atomic();
-	rw_do_exit(rwl, wrlock);
-}
-
-/* membar_exit_before_atomic() has to precede call of this function. */
-void
-rw_do_exit(struct rwlock *rwl, unsigned long wrlock)
-{
-	unsigned long owner, set;
-
-	do {
-		owner = rwl->rwl_owner;
-		if (wrlock)
-			set = 0;
-		else
-			set = (owner - RWLOCK_READ_INCR) &
-				~(RWLOCK_WAIT|RWLOCK_WRWANT);
-		/*
-		 * Potential MP race here.  If the owner had WRWANT set, we
-		 * cleared it and a reader can sneak in before a writer.
-		 */
-	} while (__predict_false(rw_cas(&rwl->rwl_owner, owner, set)));
-
-	if (owner & RWLOCK_WAIT)
-		wakeup(rwl);
+	if (__predict_false(wchan != NULL))
+		wakeup(wchan);
 }
 
 int
 rw_status(struct rwlock *rwl)
 {
-	unsigned long owner = rwl->rwl_owner;
+	struct proc *self = curproc;
+	struct proc *owner;
+	unsigned int state;
 
-	if (owner & RWLOCK_WRLOCK) {
-		if (RW_PROC(curproc) == RW_PROC(owner))
-			return RW_WRITE;
-		else
-			return RW_WRITE_OTHER;
-	}
-	if (owner)
-		return RW_READ;
-	return (0);
+	rw_lock_enter(rwl);
+	state = rwl->rwl_state;
+	owner = rwl->rwl_owner;
+	rw_lock_leave(rwl);
+
+	if (state == RW_WRITE && owner != self)
+		state = RW_WRITE_OTHER;
+
+	return (state);
 }
 
 #ifdef DIAGNOSTIC
@@ -418,11 +535,16 @@ rw_assert_wrlock(struct rwlock *rwl)
 #ifdef WITNESS
 	witness_assert(&rwl->rwl_lock_obj, LA_XLOCKED);
 #else
-	if (!(rwl->rwl_owner & RWLOCK_WRLOCK))
-		panic("%s: lock not held", rwl->rwl_name);
-
-	if (RW_PROC(curproc) != RW_PROC(rwl->rwl_owner))
+	switch (rw_status(rwl)) {
+	case RW_WRITE:
+		break;
+	case RW_WRITE_OTHER:
 		panic("%s: lock not held by this process", rwl->rwl_name);
+		/* NOTREACHED */
+	default:
+		panic("%s: lock not held", rwl->rwl_name);
+		/* NOTREACHED */
+	}
 #endif
 }
 
@@ -435,7 +557,7 @@ rw_assert_rdlock(struct rwlock *rwl)
 #ifdef WITNESS
 	witness_assert(&rwl->rwl_lock_obj, LA_SLOCKED);
 #else
-	if (!RW_PROC(rwl->rwl_owner) || (rwl->rwl_owner & RWLOCK_WRLOCK))
+	if (rw_status(rwl) != RW_READ)
 		panic("%s: lock not shared", rwl->rwl_name);
 #endif
 }
@@ -467,7 +589,7 @@ rw_assert_unlocked(struct rwlock *rwl)
 #ifdef WITNESS
 	witness_assert(&rwl->rwl_lock_obj, LA_UNLOCKED);
 #else
-	if (RW_PROC(curproc) == RW_PROC(rwl->rwl_owner))
+	if (rw_status(rwl) == RW_WRITE)
 		panic("%s: lock held", rwl->rwl_name);
 #endif
 }
@@ -478,7 +600,6 @@ void
 _rrw_init_flags(struct rrwlock *rrwl, const char *name, int flags,
     const struct lock_type *type)
 {
-	memset(rrwl, 0, sizeof(struct rrwlock));
 	_rw_init_flags_witness(&rrwl->rrwl_lock, name, RRWLOCK_LO_FLAGS(flags),
 	    type);
 }
@@ -486,47 +607,49 @@ _rrw_init_flags(struct rrwlock *rrwl, const char *name, int flags,
 int
 rrw_enter(struct rrwlock *rrwl, int flags)
 {
-	int	rv;
+	struct rwlock *rwl = &rrwl->rrwl_lock;
+	int op = flags & RW_OPMASK;
+	int error;
 
-	if (RW_PROC(rrwl->rrwl_lock.rwl_owner) == RW_PROC(curproc)) {
-		if (flags & RW_RECURSEFAIL)
-			return (EDEADLK);
-		else {
-			rrwl->rrwl_wcnt++;
-			WITNESS_LOCK(&rrwl->rrwl_lock.rwl_lock_obj,
-			    LOP_EXCLUSIVE);
-			return (0);
+	switch (op) {
+	case RW_WRITE:
+		error = rw_write(rwl, flags);
+		if (error == EDEADLK && !ISSET(flags, RW_RECURSEFAIL)) {
+			WITNESS_LOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
+			rwl->rwl_depth++;
+			error = 0;
 		}
+		break;
+	case RW_READ:
+		error = rw_read(rwl, flags);
+		break;
+	case RW_DOWNGRADE:
+		panic("%s(%p, 0x%x): downgrade not supported", __func__,
+		    rwl, flags);
+		break;
+	default:
+		panic("%s(%p, 0x%x): unknown op 0x%x", __func__, rwl, flags,
+		    op);
+		/* NOTREACHED */
 	}
 
-	rv = rw_enter(&rrwl->rrwl_lock, flags);
-	if (rv == 0)
-		rrwl->rrwl_wcnt = 1;
-
-	return (rv);
+	return (error);
 }
 
 void
 rrw_exit(struct rrwlock *rrwl)
 {
+	struct rwlock *rwl = &rrwl->rrwl_lock;
 
-	if (RW_PROC(rrwl->rrwl_lock.rwl_owner) == RW_PROC(curproc)) {
-		KASSERT(rrwl->rrwl_wcnt > 0);
-		rrwl->rrwl_wcnt--;
-		if (rrwl->rrwl_wcnt != 0) {
-			WITNESS_UNLOCK(&rrwl->rrwl_lock.rwl_lock_obj,
-			    LOP_EXCLUSIVE);
-			return;
-		}
-	}
-
-	rw_exit(&rrwl->rrwl_lock);
+	rw_exit(rwl);
 }
 
 int
 rrw_status(struct rrwlock *rrwl)
 {
-	return (rw_status(&rrwl->rrwl_lock));
+	struct rwlock *rwl = &rrwl->rrwl_lock;
+
+	return (rw_status(rwl));
 }
 
 /*-
