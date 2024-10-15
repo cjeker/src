@@ -264,9 +264,9 @@ _atomic_sub_long_nv(volatile unsigned long *p, unsigned long v)
 
 #if defined(MULTIPROCESSOR) || !defined(_KERNEL)
 #define membar_enter()		__membar("mfence")
-#define membar_exit()		__membar("")
-#define membar_producer()	__membar("")
-#define membar_consumer()	__membar("")
+#define membar_exit()		__membar("mfence")
+#define membar_producer()	__membar("sfence")
+#define membar_consumer()	__membar("lfence")
 #define membar_sync()		__membar("mfence")
 #else
 #define membar_enter()		__membar("")
@@ -282,8 +282,8 @@ _atomic_sub_long_nv(volatile unsigned long *p, unsigned long v)
 #ifdef _KERNEL
 
 /* virtio needs MP membars even on SP kernels */
-#define virtio_membar_producer()	__membar("")
-#define virtio_membar_consumer()	__membar("")
+#define virtio_membar_producer()	__membar("sfence")
+#define virtio_membar_consumer()	__membar("lfence")
 #define virtio_membar_sync()		__membar("mfence")
 
 static __inline void
