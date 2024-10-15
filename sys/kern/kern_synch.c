@@ -570,19 +570,18 @@ unsleep(struct proc *p)
 /*
  * Make a number of processes sleeping on the specified identifier runnable.
  */
-void
+int
 wakeup_n(const volatile void *ident, int n)
 {
-	struct slpque *qp, wakeq;
-	struct proc *p;
-	struct proc *pnext;
+	struct slpque wakeq = TAILQ_HEAD_INITIALIZER(wakeq);
+	struct slpque *qp;
+	struct proc *p, *np;
+	int c = 0;
 
-	TAILQ_INIT(&wakeq);
+	qp = &slpque[LOOKUP(ident)];
 
 	SCHED_LOCK();
-	qp = &slpque[LOOKUP(ident)];
-	for (p = TAILQ_FIRST(qp); p != NULL && n != 0; p = pnext) {
-		pnext = TAILQ_NEXT(p, p_runq);
+	TAILQ_FOREACH_SAFE(p, qp, p_runq, np) {
 #ifdef DIAGNOSTIC
 		if (p->p_stat != SSLEEP && p->p_stat != SSTOP)
 			panic("thread %d p_stat is %d", p->p_tid, p->p_stat);
@@ -593,7 +592,9 @@ wakeup_n(const volatile void *ident, int n)
 			p->p_wchan = NULL;
 			p->p_wmesg = NULL;
 			TAILQ_INSERT_TAIL(&wakeq, p, p_runq);
-			--n;
+
+			if (++c >= n)
+				break;
 		}
 	}
 	while ((p = TAILQ_FIRST(&wakeq))) {
@@ -605,15 +606,17 @@ wakeup_n(const volatile void *ident, int n)
 			setrunnable(p);
 	}
 	SCHED_UNLOCK();
+
+	return (c);
 }
 
 /*
  * Make all processes sleeping on the specified identifier runnable.
  */
-void
+int
 wakeup(const volatile void *chan)
 {
-	wakeup_n(chan, -1);
+	return wakeup_n(chan, INT_MAX);
 }
 
 int
