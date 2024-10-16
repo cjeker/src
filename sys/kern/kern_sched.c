@@ -191,7 +191,10 @@ sched_idle(void *v)
 				wakeup(spc);
 			}
 #endif
+
+			LLTRACE(lltrace_idle, 1);
 			cpu_idle_cycle();
+			LLTRACE(lltrace_idle, 0);
 		}
 		cpu_idle_leave();
 		cpuset_del(&sched_idle_cpus, ci);
@@ -250,6 +253,7 @@ sched_toidle(void)
 	idle->p_stat = SRUN;
 
 	uvmexp.swtch++;
+	LLTRACE(lltrace_switch, NULL, idle);
 	if (curproc != NULL)
 		TRACEPOINT(sched, off__cpu, idle->p_tid + THREAD_PID_OFFSET,
 		    idle->p_p->ps_pid);
@@ -597,6 +601,7 @@ sched_proc_to_cpu_cost(struct cpu_info *ci, struct proc *p)
 	if (cpuset_isset(&sched_queued_cpus, ci))
 		cost += spc->spc_nrun * sched_cost_runnable;
 
+#if 0
 	/*
 	 * Try to avoid the primary cpu as it handles hardware interrupts.
 	 *
@@ -605,6 +610,7 @@ sched_proc_to_cpu_cost(struct cpu_info *ci, struct proc *p)
 	 */
 	if (CPU_IS_PRIMARY(ci))
 		cost += sched_cost_runnable;
+#endif
 
 	/*
 	 * If the proc is on this cpu already, lower the cost by how much

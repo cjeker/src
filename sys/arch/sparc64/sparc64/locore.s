@@ -2605,8 +2605,8 @@ sun4v_datatrap:
 
 	wr	%g0, ASI_PRIMARY_NOFAULT, %asi	! Restore default ASI
 	wrpr	%g0, PSTATE_INTR, %pstate	! traps on again
-	call	data_access_fault		! data_acces_fault(tf, type, ...)
-	 nop
+	call	data_access_fault		! data_access_fault(tf, type,
+	 nop					!	pc, addr, sfva, sfsr)
 
 	ba,a,pt	%icc, return_from_trap
 	 nop

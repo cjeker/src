@@ -313,11 +313,13 @@ yield(void)
 {
 	struct proc *p = curproc;
 
+	LLTRACE(lltrace_fn_enter, yield);
 	SCHED_LOCK();
 	setrunqueue(p->p_cpu, p, p->p_usrpri);
 	p->p_ru.ru_nvcsw++;
 	mi_switch();
 	SCHED_UNLOCK();
+	LLTRACE(lltrace_fn_leave, yield);
 }
 
 /*
@@ -331,11 +333,13 @@ preempt(void)
 {
 	struct proc *p = curproc;
 
+	LLTRACE(lltrace_fn_enter, preempt);
 	SCHED_LOCK();
 	setrunqueue(p->p_cpu, p, p->p_usrpri);
 	p->p_ru.ru_nivcsw++;
 	mi_switch();
 	SCHED_UNLOCK();
+	LLTRACE(lltrace_fn_leave, preempt);
 }
 
 void
@@ -348,6 +352,8 @@ mi_switch(void)
 #ifdef MULTIPROCESSOR
 	int hold_count;
 #endif
+
+	LLTRACE(lltrace_sched_enter);
 
 	KASSERT(p->p_stat != SONPROC);
 
@@ -391,14 +397,19 @@ mi_switch(void)
 		uvmexp.swtch++;
 		TRACEPOINT(sched, off__cpu, nextproc->p_tid + THREAD_PID_OFFSET,
 		    nextproc->p_p->ps_pid);
+		LLTRACE(lltrace_switch, p, nextproc);
 		cpu_switchto(p, nextproc);
 		TRACEPOINT(sched, on__cpu, NULL);
+
+		//LLTRACE(lltrace_pidname, p);
 	} else {
 		TRACEPOINT(sched, remain__cpu, NULL);
 		p->p_stat = SONPROC;
 	}
 
 	clear_resched(curcpu());
+
+	LLTRACE(lltrace_sched_leave);
 
 	SCHED_ASSERT_LOCKED();
 

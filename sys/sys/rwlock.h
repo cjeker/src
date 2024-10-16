@@ -60,6 +60,8 @@ struct proc;
 
 struct rwlock {
 	volatile unsigned long	 rwl_owner;
+	volatile unsigned int	 rwl_waiters;
+	volatile unsigned int	 rwl_readers;
 	const char		*rwl_name;
 #ifdef WITNESS
 	struct lock_object	 rwl_lock_obj;
@@ -91,14 +93,12 @@ struct rwlock {
 
 #ifdef WITNESS
 #define RWLOCK_INITIALIZER(name) \
-	{ 0, name, .rwl_lock_obj = RWLOCK_LO_INITIALIZER(name, 0) }
+	{ 0, 0, 0, name, .rwl_lock_obj = RWLOCK_LO_INITIALIZER(name, 0) }
 #else
 #define RWLOCK_INITIALIZER(name) \
-	{ 0, name }
+	{ 0, 0, 0, name }
 #endif
 
-#define RWLOCK_WAIT		0x01UL
-#define RWLOCK_WRWANT		0x02UL
 #define RWLOCK_WRLOCK		0x04UL
 #define RWLOCK_MASK		0x07UL
 
