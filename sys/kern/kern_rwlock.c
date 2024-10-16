@@ -68,8 +68,10 @@ rw_dec(volatile unsigned int *p)
 }
 #endif
 
-static int	rw_read(struct rwlock *, int, unsigned long);
-static int	rw_write(struct rwlock *, int, unsigned long);
+static int	rw_do_enter_read(struct rwlock *, int, unsigned long);
+static void	rw_do_exit_read(struct rwlock *, unsigned long, unsigned long);
+static int	rw_do_enter_write(struct rwlock *, int, unsigned long);
+static void	rw_do_exit_write(struct rwlock *, unsigned long);
 static int	rw_downgrade(struct rwlock *, int, unsigned long);
 
 static void	rw_exited(struct rwlock *);
@@ -90,7 +92,7 @@ rw_enter_read(struct rwlock *rwl)
 {
 	unsigned long pc = (unsigned long)__builtin_return_address(0);
 
-	rw_read(rwl, 0, pc);
+	rw_do_enter_read(rwl, 0, pc);
 }
 
 void
@@ -98,7 +100,16 @@ rw_enter_write(struct rwlock *rwl)
 {
 	unsigned long pc = (unsigned long)__builtin_return_address(0);
 
-	rw_write(rwl, 0, pc);
+	rw_do_enter_write(rwl, 0, pc);
+}
+
+void
+rw_exit_read(struct rwlock *rwl)
+{
+	unsigned long pc = (unsigned long)__builtin_return_address(0);
+
+	/* maybe we're the last one? */
+	rw_do_exit_read(rwl, RWLOCK_READ_INCR, pc);
 }
 
 static void
@@ -135,32 +146,29 @@ rw_do_exit_read(struct rwlock *rwl, unsigned long owner, unsigned long pc)
 
 	if (decr == 0) {
 		/* last one out */
-		membar_consumer();
 		rw_exited(rwl);
 	}
-}
-
-void
-rw_exit_read(struct rwlock *rwl)
-{
-	unsigned long pc = (unsigned long)__builtin_return_address(0);
-
-	/* maybe we're the last one? */
-	rw_do_exit_read(rwl, RWLOCK_READ_INCR, pc);
 }
 
 static void
 rw_do_exit_write(struct rwlock *rwl, unsigned long pc)
 {
+	unsigned long self = rw_self();
+	unsigned long owner;
+
 	/* Avoid deadlocks after panic or in DDB */
 	if (panicstr || db_active)
 		return;
 
-	rw_assert_wrlock(rwl);
 	WITNESS_UNLOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
 
-	membar_exit();
-	atomic_store_long(&rwl->rwl_owner, 0);
+	membar_exit_before_atomic();
+	owner = rw_cas(&rwl->rwl_owner, self, 0);
+	if (__predict_false(owner != self)) {
+		panic("%s rwlock %p: exit write when lock not held "
+		    "(owner 0x%lx, self 0x%lx)", rwl->rwl_name, rwl,
+		    owner, self);
+	}
 	LLTRW(rwl, LLTRACE_LK_R_EXCL, pc);
 
 	rw_exited(rwl);
@@ -182,10 +190,6 @@ _rw_init_flags_witness(struct rwlock *rwl, const char *name, int lo_flags,
 	rwl->rwl_waiters = 0;
 	rwl->rwl_readers = 0;
 	rwl->rwl_name = name;
-#if 0
-	rwl->rwl_next = NULL;
-	rwl->rwl_tail = &rwl->rwl_next;
-#endif
 
 #ifdef WITNESS
 	rwl->rwl_lock_obj.lo_flags = lo_flags;
@@ -214,10 +218,10 @@ rw_enter(struct rwlock *rwl, int flags)
 
 	switch (op) {
 	case RW_WRITE:
-		error = rw_write(rwl, flags, pc);
+		error = rw_do_enter_write(rwl, flags, pc);
 		break;
 	case RW_READ:
-		error = rw_read(rwl, flags, pc);
+		error = rw_do_enter_read(rwl, flags, pc);
 		break;
 	case RW_DOWNGRADE:
 		error = rw_downgrade(rwl, flags, pc);
@@ -232,7 +236,7 @@ rw_enter(struct rwlock *rwl, int flags)
 }
 
 static int
-rw_write(struct rwlock *rwl, int flags, unsigned long pc)
+rw_do_enter_write(struct rwlock *rwl, int flags, unsigned long pc)
 {
 	unsigned long self = rw_self();
 	unsigned long owner;
@@ -244,12 +248,12 @@ rw_write(struct rwlock *rwl, int flags, unsigned long pc)
 		return (0);
 
 #ifdef WITNESS
-	if (!ISSET(flags, RW_NOSLEEP)) {
-		int lop_flags = LOP_NEWORDER | LOP_EXCLUSIVE;
-		if (ISSET(flags, RW_DUPOK))
-			lop_flags |= LOP_DUPOK;
+	int lop_flags = LOP_NEWORDER | LOP_EXCLUSIVE;
+	if (ISSET(flags, RW_DUPOK))
+		lop_flags |= LOP_DUPOK;
+
+	if (!ISSET(flags, RW_NOSLEEP))
 		WITNESS_CHECKORDER(&rwl->rwl_lock_obj, lop_flags, NULL);
-	}
 #endif
 
 	owner = rw_cas(&rwl->rwl_owner, 0, self);
@@ -258,8 +262,13 @@ rw_write(struct rwlock *rwl, int flags, unsigned long pc)
 		LLTRW(rwl, LLTRACE_LK_I_EXCL, pc);
 		goto locked;
 	}
+	if (__predict_false(owner == self)) {
+		panic("%s rwlock %p: enter write deadlock",
+		    rwl->rwl_name, rwl);
+	}
 
 #if 0
+	/* if ncpus > 1? */
 	{
 		int spins;
 
@@ -293,9 +302,10 @@ rw_write(struct rwlock *rwl, int flags, unsigned long pc)
 
 	LLTRW(rwl, LLTRACE_LK_A_START, pc);
 	rw_inc(&rwl->rwl_waiters);
-	membar_enter();
+	membar_producer();
 	do {
 		sleep_setup(&rwl->rwl_waiters, prio, rwl->rwl_name);
+		membar_consumer();
 		owner = atomic_load_long(&rwl->rwl_owner);
 		error = sleep_finish(10 * hz, owner != 0);
 		if (error == EWOULDBLOCK) {
@@ -323,7 +333,7 @@ rw_write(struct rwlock *rwl, int flags, unsigned long pc)
 
 locked:
 	membar_enter_after_atomic();
-	WITNESS_LOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
+	WITNESS_LOCK(&rwl->rwl_lock_obj, lop_flags);
 
 	return (0);
 }
@@ -347,7 +357,7 @@ rw_read_incr(struct rwlock *rwl, unsigned long owner)
 }
 
 static int
-rw_read(struct rwlock *rwl, int flags, unsigned long pc)
+rw_do_enter_read(struct rwlock *rwl, int flags, unsigned long pc)
 {
 	unsigned long owner;
 	int error;
@@ -358,12 +368,11 @@ rw_read(struct rwlock *rwl, int flags, unsigned long pc)
 		return (0);
 
 #ifdef WITNESS
-	if (!ISSET(flags, RW_NOSLEEP)) {
-		int lop_flags = LOP_NEWORDER;
-		if (ISSET(flags, RW_DUPOK))
-			lop_flags |= LOP_DUPOK;
+	int lop_flags = LOP_NEWORDER;
+	if (ISSET(flags, RW_DUPOK))
+		lop_flags |= LOP_DUPOK;
+	if (!ISSET(flags, RW_NOSLEEP))
 		WITNESS_CHECKORDER(&rwl->rwl_lock_obj, lop_flags, NULL);
-	}
 #endif
 
 	owner = rw_cas(&rwl->rwl_owner, 0, RWLOCK_READ_INCR);
@@ -378,10 +387,11 @@ rw_read(struct rwlock *rwl, int flags, unsigned long pc)
 			panic("%s rwlock %p: enter read deadlock",
 			    rwl->rwl_name, rwl);
 		}
-	} else if (atomic_load_int(&rwl->rwl_waiters) == 0 &&
-	    rw_read_incr(rwl, owner)) {
-		LLTRW(rwl, LLTRACE_LK_I_SHARED, pc);
-		goto locked;
+	} else if (atomic_load_int(&rwl->rwl_waiters) == 0) {
+		if (rw_read_incr(rwl, owner)) {
+			LLTRW(rwl, LLTRACE_LK_I_SHARED, pc);
+			goto locked;
+		}
 	}
 
 	if (ISSET(flags, RW_NOSLEEP))
@@ -417,7 +427,7 @@ rw_read(struct rwlock *rwl, int flags, unsigned long pc)
 
 locked:
 	membar_enter_after_atomic();
-	WITNESS_LOCK(&rwl->rwl_lock_obj, 0);
+	WITNESS_LOCK(&rwl->rwl_lock_obj, lop_flags);
 
 	return (0);
 fail:
@@ -429,10 +439,16 @@ fail:
 static int
 rw_downgrade(struct rwlock *rwl, int flags, unsigned long pc)
 {
-	rw_assert_wrlock(rwl);
+	unsigned long self = rw_self();
+	unsigned long owner;
 
-	membar_exit();
-	atomic_store_long(&rwl->rwl_owner, RWLOCK_READ_INCR);
+	membar_exit_before_atomic();
+	owner = atomic_cas_ulong(&rwl->rwl_owner, self, RWLOCK_READ_INCR);
+	if (__predict_false(owner != self)) {
+		panic("%s rwlock %p: downgrade when lock not held "
+		    "(owner 0x%lx, self 0x%lx)", rwl->rwl_name, rwl,
+		    owner, self);
+	}
 	LLTRW(rwl, LLTRACE_LK_DOWNGRADE, pc);
 
 #ifdef WITNESS
@@ -444,7 +460,9 @@ rw_downgrade(struct rwlock *rwl, int flags, unsigned long pc)
 	}
 #endif
 
-	if (atomic_load_int(&rwl->rwl_readers) > 0)
+	membar_consumer();
+	if (atomic_load_int(&rwl->rwl_waiters) == 0 &&
+	    atomic_load_int(&rwl->rwl_readers) > 0)
 		wakeup(&rwl->rwl_readers);
 
 	return (0);
@@ -471,6 +489,7 @@ rw_exit(struct rwlock *rwl)
 static void
 rw_exited(struct rwlock *rwl)
 {
+	membar_consumer();
 	if (atomic_load_int(&rwl->rwl_waiters) && wakeup(&rwl->rwl_waiters))
 		return;
 	if (atomic_load_int(&rwl->rwl_readers))
