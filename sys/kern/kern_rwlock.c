@@ -490,7 +490,7 @@ static void
 rw_exited(struct rwlock *rwl)
 {
 	membar_consumer();
-	if (atomic_load_int(&rwl->rwl_waiters) && wakeup(&rwl->rwl_waiters))
+	if (atomic_load_int(&rwl->rwl_waiters) && wakeup_one(&rwl->rwl_waiters))
 		return;
 	if (atomic_load_int(&rwl->rwl_readers))
 		wakeup(&rwl->rwl_readers);
