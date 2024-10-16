@@ -42,19 +42,19 @@
 
 #ifdef __GNUC__
 
-#define LLTRACE_SPC(_spc, _fn, ...) {					\
+#define LLTRACE_SPC(_spc, _fn, ...) do {				\
 	struct lltrace_cpu *_llt = lltrace_enter_spc((_spc));		\
 	if (_llt != NULL)						\
 		(_fn)(_llt, ##__VA_ARGS__);				\
 } while (0)
 
-#define LLTRACE_CPU(_ci, _fn, ...) {					\
+#define LLTRACE_CPU(_ci, _fn, ...) do {					\
 	struct lltrace_cpu *_llt = lltrace_enter_cpu((_ci));		\
 	if (_llt != NULL)						\
 		(_fn)(_llt, ##__VA_ARGS__);				\
 } while (0)
 
-#define LLTRACE(_fn, ...) {						\
+#define LLTRACE(_fn, ...) do {						\
 	struct lltrace_cpu *_llt = lltrace_enter();			\
 	if (_llt != NULL)						\
 		(_fn)(_llt, ##__VA_ARGS__);				\
@@ -62,19 +62,19 @@
 
 #else
 
-#define LLTRACE_SPC(_spc, _fn, ...) {					\
+#define LLTRACE_SPC(_spc, _fn, ...) do {				\
 	struct lltrace_cpu *_llt = lltrace_enter_spc((_spc));		\
 	if (_llt != NULL)						\
 		(_fn)(_llt __VA_OPT__(,) __VA_ARGS__);			\
 } while (0)
 
-#define LLTRACE_CPU(_ci, _fn, ...) {					\
+#define LLTRACE_CPU(_ci, _fn, ...) do {					\
 	struct lltrace_cpu *_llt = lltrace_enter_cpu((_ci));		\
 	if (_llt != NULL)						\
 		(_fn)(_llt __VA_OPT__(,) __VA_ARGS__);			\
 } while (0)
 
-#define LLTRACE(_fn, ...) {						\
+#define LLTRACE(_fn, ...) do {						\
 	struct lltrace_cpu *_llt = lltrace_enter();			\
 	if (_llt != NULL)						\
 		(_fn)(_llt __VA_OPT__(,) __VA_ARGS__);			\
