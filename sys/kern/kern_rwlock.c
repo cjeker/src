@@ -33,11 +33,6 @@
 #define RW_SLEEP_TMO	INFSLP
 #endif
 
-struct rwlock_waiter {
-	struct proc		*w_proc;
-	struct rwlock_waiter	*w_next;
-};
-
 /*
  * Other OSes implement more sophisticated mechanism to determine how long the
  * process attempting to acquire the lock should be spinning. We start with
@@ -322,7 +317,7 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 
 locked:
 	membar_enter_after_atomic();
-	WITNESS_LOCK(&rwl->rwl_lock_obj, lop_flags);
+	WITNESS_LOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
 
 	return (0);
 }
@@ -415,7 +410,7 @@ rw_do_enter_read(struct rwlock *rwl, int flags)
 
 locked:
 	membar_enter_after_atomic();
-	WITNESS_LOCK(&rwl->rwl_lock_obj, lop_flags);
+	WITNESS_LOCK(&rwl->rwl_lock_obj, 0);
 
 	return (0);
 }
