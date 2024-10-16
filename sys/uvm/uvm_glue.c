@@ -287,15 +287,27 @@ uvm_uarea_free(struct proc *p)
 }
 
 /*
- * uvm_exit: exit a virtual address space
+ * uvm_exit: exit a virtual address space and switch vmspace to proc0
  */
 void
 uvm_exit(struct process *pr)
 {
-	struct vmspace *vm = pr->ps_vmspace;
+	struct vmspace *ovm = pr->ps_vmspace;
+	struct proc *p = curproc;
+	int s;
 
-	pr->ps_vmspace = NULL;
-	uvmspace_free(vm);
+	KASSERT(p == pr->ps_mainproc);
+
+	if (__predict_false(ovm == proc0.p_vmspace))
+		return;
+
+	s = splhigh();
+	pmap_deactivate(p);
+	pr->ps_vmspace = p->p_vmspace = proc0.p_vmspace;
+	pmap_activate(p);
+	splx(s);
+
+	uvmspace_free(ovm);
 }
 
 /*

@@ -190,7 +190,9 @@ struct process {
 	int	ps_siglist;		/* Signals pending for the process. */
 
 	struct	proc *ps_single;	/* [m] Thread for single-threading. */
+	struct	proc *ps_trapped;	/* [m] Thread trapped for ptrace. */
 	u_int	ps_singlecnt;		/* [m] Number of threads to suspend. */
+	u_int	ps_stopcnt;		/* [m] Number of threads to stop. */
 	u_int	ps_exitcnt;		/* [m] Number of threads in exit1. */
 
 	int	ps_traceflag;		/* Kernel trace points. */
@@ -303,8 +305,10 @@ struct process {
 #define	PS_CHROOT	0x01000000	/* Process is chrooted */
 #define	PS_NOBTCFI	0x02000000	/* No Branch Target CFI */
 #define	PS_ITIMER	0x04000000	/* Virtual interval timers running */
-#define	PS_CONTINUED	0x20000000	/* Continued proc not yet waited for */
-#define	PS_STOPPED	0x40000000	/* Stopped process */
+#define	PS_REAPED	0x08000000	/* The process was reaped. */
+#define	PS_CONTINUED	0x10000000	/* Continued proc not yet waited for */
+#define	PS_STOPPED	0x20000000	/* Stopped process */
+#define	PS_TRAPPED	0x40000000	/* Stopped due to tracing event */
 
 #define	PS_BITS \
     ("\20" "\01CONTROLT" "\02EXEC" "\03INEXEC" "\04EXITING" "\05SUGID" \
@@ -312,8 +316,8 @@ struct process {
      "\013WAITED" "\014COREDUMP" "\015SINGLEEXIT" "\016SINGLEUNWIND" \
      "\017NOZOMBIE" "\020STOPPING" "\021SYSTEM" "\022EMBRYO" "\023ZOMBIE" \
      "\024NOBROADCASTKILL" "\025PLEDGE" "\026WXNEEDED" "\027EXECPLEDGE" \
-     "\030ORPHAN" "\031CHROOT" "\032NOBTCFI" "\033ITIMER" "\036CONTINUED" \
-     "\037STOPPED")
+     "\030ORPHAN" "\031CHROOT" "\032NOBTCFI" "\033ITIMER" "\034REAPED" \
+     "\035CONTINUED" "\036STOPPED" "\037TRAPPED")
 
 struct kcov_dev;
 struct lock_list_entry;
@@ -441,16 +445,17 @@ struct proc {
 #define	P_TRACESINGLE	0x00001000	/* Ptrace: keep single threaded. */
 #define	P_WEXIT		0x00002000	/* Working on exiting. */
 #define	P_OWEUPC	0x00008000	/* Owe proc an addupc() at next ast. */
-#define	P_SUSPSINGLE	0x00080000	/* Need to stop for single threading. */
+#define	P_SUSPSINGLE	0x00010000	/* Need to stop for single threading. */
+#define	P_SUSPSIG	0x00020000	/* Stopped from signal. */
+#define	P_SUSPTRAPPED	0x00040000	/* Stopped for ptrace. */
 #define	P_THREAD	0x04000000	/* Only a thread, not a real process */
-#define	P_SUSPSIG	0x08000000	/* Stopped from signal. */
 #define P_CPUPEG	0x40000000	/* Do not move to another cpu. */
 
 #define	P_BITS \
     ("\20" "\01INKTR" "\02PROFPEND" "\03ALRMPEND" "\04SIGSUSPEND" \
      "\05CANTSLEEP" "\06WSLEEP" "\010SINTR" "\012SYSTEM" "\013TIMEOUT" \
-     "\015TRACESINGLE" "\016WEXIT" "\020OWEUPC" "\024SUSPSINGLE" \
-     "\033THREAD" "\034SUSPSIG" "\037CPUPEG")
+     "\015TRACESINGLE" "\016WEXIT" "\020OWEUPC" "\021SUSPSINGLE" \
+     "\022SUSPSIG" "\023SUSPTRAPPED" "\033THREAD" "\037CPUPEG")
 
 #define	THREAD_PID_OFFSET	100000
 
@@ -570,7 +575,7 @@ __dead void exit1(struct proc *, int, int, int);
 void	exit2(struct proc *);
 void	cpu_fork(struct proc *_curp, struct proc *_child, void *_stack,
 	    void *_tcb, void (*_func)(void *), void *_arg);
-void	cpu_exit(struct proc *);
+void	cpu_proc_cleanup(struct proc *);
 void	process_initialize(struct process *, struct proc *);
 int	fork1(struct proc *_curp, int _flags, void (*_func)(void *),
 	    void *_arg, register_t *_retval, struct proc **_newprocp);
@@ -590,18 +595,18 @@ refreshcreds(struct proc *p)
 		dorefreshcreds(pr, p);
 }
 
-#define	SINGLE_SUSPEND	0x01	/* other threads to stop wherever they are */
-#define	SINGLE_UNWIND	0x02	/* other threads to unwind and stop */
-#define	SINGLE_EXIT	0x03	/* other threads to unwind and then exit */
+#define	SINGLE_UNWIND	0x01	/* other threads to unwind and stop */
+#define	SINGLE_EXIT	0x02	/* other threads to unwind and then exit */
 #define	SINGLE_MASK	0x0f
 /* extra flags for single_thread_set */
 #define	SINGLE_DEEP	0x10	/* call is in deep */
-#define	SINGLE_NOWAIT	0x20	/* do not wait for other threads to stop */
 
 int	single_thread_set(struct proc *, int);
 int	single_thread_wait(struct process *, int);
 void	single_thread_clear(struct proc *, int);
 int	single_thread_check(struct proc *, int);
+void	process_stopped(struct proc *);
+void	process_continue(struct proc *);
 
 void	child_return(void *);
 

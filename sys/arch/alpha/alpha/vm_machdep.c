@@ -45,25 +45,11 @@
 #include <machine/reg.h>
 
 
-/*
- * cpu_exit is called as the last action during exit.
- */
 void
-cpu_exit(p)
-	struct proc *p;
+cpu_proc_cleanup(struct proc *p)
 {
-
 	if (p->p_addr->u_pcb.pcb_fpcpu != NULL)
 		fpusave_proc(p, 0);
-
-	/*
-	 * Deactivate the exiting address space before the vmspace
-	 * is freed.  Note that we will continue to run on this
-	 * vmspace's context until the switch to idle in sched_exit().
-	 */
-	pmap_deactivate(p);
-	sched_exit(p);
-	/* NOTREACHED */
 }
 
 /*
