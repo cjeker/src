@@ -378,7 +378,6 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 		mtx_leave(&pr->ps_mtx);
 
 		/* Notify listeners of our demise. */
-		knote_processexit(pr);		/* XXX rwlock can sleep */
 		if (pr->ps_flags & PS_ZOMBIE) {
 			/* Post SIGCHLD and wake up parent. */
 			prsignal(pr->ps_pptr, SIGCHLD);
@@ -492,6 +491,7 @@ reaper(void *arg)
 			proc_free(p);
 		} else {
 			struct process *pr = p->p_p;
+			knote_processexit(pr);	/* XXX rwlock can sleep */
 			KERNEL_LOCK();
 			atomic_setbits_int(&pr->ps_flags, PS_REAPED);
 			process_zap(pr);
