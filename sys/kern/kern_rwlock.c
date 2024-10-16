@@ -31,11 +31,6 @@
 #define LLTRW(_rwl, _ev, _pc) \
 	    LLTRACE(lltrace_lock, (_rwl), LLTRACE_LK_RW, (_ev), (_pc))
 
-struct rwlock_waiter {
-	struct proc		*w_proc;
-	struct rwlock_waiter	*w_next;
-};
-
 /*
  * Other OSes implement more sophisticated mechanism to determine how long the
  * process attempting to acquire the lock should be spinning. We start with
@@ -328,7 +323,7 @@ rw_write(struct rwlock *rwl, int flags, unsigned long pc)
 
 locked:
 	membar_enter_after_atomic();
-	WITNESS_LOCK(&rwl->rwl_lock_obj, lop_flags);
+	WITNESS_LOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
 
 	return (0);
 }
@@ -422,7 +417,7 @@ rw_read(struct rwlock *rwl, int flags, unsigned long pc)
 
 locked:
 	membar_enter_after_atomic();
-	WITNESS_LOCK(&rwl->rwl_lock_obj, lop_flags);
+	WITNESS_LOCK(&rwl->rwl_lock_obj, 0);
 
 	return (0);
 fail:
