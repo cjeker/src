@@ -317,12 +317,10 @@ yield(void)
 {
 	struct proc *p = curproc;
 
-	LLTRACE(lltrace_fn_enter, yield);
 	SCHED_LOCK();
 	setrunqueue(p->p_cpu, p, p->p_usrpri);
 	p->p_ru.ru_nvcsw++;
 	mi_switch();
-	LLTRACE(lltrace_fn_leave, yield);
 }
 
 /*
@@ -336,12 +334,10 @@ preempt(void)
 {
 	struct proc *p = curproc;
 
-	LLTRACE(lltrace_fn_enter, preempt);
 	SCHED_LOCK();
 	setrunqueue(p->p_cpu, p, p->p_usrpri);
 	p->p_ru.ru_nivcsw++;
 	mi_switch();
-	LLTRACE(lltrace_fn_leave, preempt);
 }
 
 void
