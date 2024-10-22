@@ -607,7 +607,7 @@ bgp_fsm(struct peer *peer, enum session_events event)
 			timer_stop(&peer->timers, Timer_IdleHold);
 
 			/* allocate read buffer */
-			peer->rbuf = calloc(1, sizeof(struct ibuf_read));
+			peer->rbuf = calloc(1, sizeof(*peer->rbuf));
 			if (peer->rbuf == NULL)
 				fatal(NULL);
 

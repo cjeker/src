@@ -189,7 +189,7 @@ struct rtr_session {
 	char				descr[PEER_DESCR_LEN];
 	struct roa_tree			roa_set;
 	struct aspa_tree		aspa;
-	struct ibuf_read		r;
+	struct buf_read			r;
 	struct msgbuf			w;
 	struct timer_head		timers;
 	uint32_t			id;		/* rtr_config id */

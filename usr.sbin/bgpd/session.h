@@ -197,6 +197,12 @@ struct timer {
 
 TAILQ_HEAD(timer_head, timer);
 
+struct buf_read {
+	uint8_t				buf[IBUF_READ_SIZE];
+	uint8_t				*rptr;
+	size_t				wpos;
+};
+
 struct peer {
 	struct peer_config	 conf;
 	struct peer_stats	 stats;
@@ -213,7 +219,7 @@ struct peer {
 	struct bgpd_addr	 remote;
 	struct timer_head	 timers;
 	struct msgbuf		 wbuf;
-	struct ibuf_read	*rbuf;
+	struct buf_read		*rbuf;
 	struct peer		*template;
 	int			 fd;
 	int			 lasterr;
