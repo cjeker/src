@@ -54,10 +54,15 @@ struct adj {
 	union ldpd_addr		 trans_addr;
 };
 
+struct buf_read {
+	uint8_t			 buf[IBUF_READ_SIZE];
+	size_t			 wpos;
+};
+
 struct tcp_conn {
 	struct nbr		*nbr;
 	int			 fd;
-	struct ibuf_read	*rbuf;
+	struct buf_read		*rbuf;
 	struct evbuf		 wbuf;
 	struct event		 rev;
 };
