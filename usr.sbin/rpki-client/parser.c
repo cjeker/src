@@ -1036,7 +1036,7 @@ void
 proc_parser(int fd)
 {
 	struct entityq	 q;
-	struct msgbuf	 msgq;
+	struct msgbuf	*msgq;
 	struct pollfd	 pfd;
 	struct entity	*entp;
 	struct ibuf	*b, *inbuf = NULL;
@@ -1058,13 +1058,14 @@ proc_parser(int fd)
 
 	TAILQ_INIT(&q);
 
-	msgbuf_init(&msgq);
+	if ((msgq = msgbuf_new()) == NULL)
+		err(1, NULL);
 
 	pfd.fd = fd;
 
 	for (;;) {
 		pfd.events = POLLIN;
-		if (msgbuf_queuelen(&msgq) > 0)
+		if (msgbuf_queuelen(msgq) > 0)
 			pfd.events |= POLLOUT;
 
 		if (poll(&pfd, 1, INFTIM) == -1) {
@@ -1093,7 +1094,7 @@ proc_parser(int fd)
 		}
 
 		if (pfd.revents & POLLOUT) {
-			if (msgbuf_write(fd, &msgq) == -1) {
+			if (msgbuf_write(fd, msgq) == -1) {
 				if (errno == EPIPE)
 					errx(1, "write: connection closed");
 				else
@@ -1101,7 +1102,7 @@ proc_parser(int fd)
 			}
 		}
 
-		parse_entity(&q, &msgq);
+		parse_entity(&q, msgq);
 	}
 
 	while ((entp = TAILQ_FIRST(&q)) != NULL) {
@@ -1113,7 +1114,7 @@ proc_parser(int fd)
 	crl_tree_free(&crlt);
 
 	X509_STORE_CTX_free(ctx);
-	msgbuf_clear(&msgq);
+	msgbuf_free(msgq);
 
 	ibuf_free(inbuf);
 
