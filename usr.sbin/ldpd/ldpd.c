@@ -595,8 +595,7 @@ evbuf_init(struct evbuf *eb, int fd, void (*handler)(int, short, void *),
     void *arg)
 {
 	msgbuf_init(&eb->wbuf);
-	eb->wbuf.fd = fd;
-	event_set(&eb->ev, eb->wbuf.fd, EV_WRITE, handler, arg);
+	event_set(&eb->ev, fd, EV_WRITE, handler, arg);
 }
 
 void
@@ -604,7 +603,6 @@ evbuf_clear(struct evbuf *eb)
 {
 	event_del(&eb->ev);
 	msgbuf_clear(&eb->wbuf);
-	eb->wbuf.fd = -1;
 }
 
 static int
