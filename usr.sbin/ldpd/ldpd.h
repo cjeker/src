@@ -60,8 +60,8 @@
 #define	F_REDISTRIBUTED		0x0040
 
 struct evbuf {
-	struct msgbuf		wbuf;
-	struct event		ev;
+	struct msgbuf		*wbuf;
+	struct event		 ev;
 };
 
 struct imsgev {
