@@ -1399,6 +1399,7 @@ struct mrt {
 	LIST_ENTRY(mrt)		entry;
 	uint32_t		peer_id;
 	uint32_t		group_id;
+	int			fd;
 	enum mrt_type		type;
 	enum mrt_state		state;
 	uint16_t		seqnum;
