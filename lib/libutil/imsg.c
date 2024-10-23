@@ -42,7 +42,6 @@ imsgbuf_init(struct imsgbuf *imsgbuf, int fd)
 	msgbuf_init(&imsgbuf->w);
 	memset(&imsgbuf->r, 0, sizeof(imsgbuf->r));
 	imsgbuf->fd = fd;
-	imsgbuf->w.fd = fd;
 	imsgbuf->pid = getpid();
 	TAILQ_INIT(&imsgbuf->fds);
 }
@@ -134,7 +133,7 @@ fail:
 int
 imsgbuf_write(struct imsgbuf *imsgbuf)
 {
-	return msgbuf_write(&imsgbuf->w);
+	return msgbuf_write(imsgbuf->fd, &imsgbuf->w);
 }
 
 int
