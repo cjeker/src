@@ -1059,7 +1059,6 @@ proc_parser(int fd)
 	TAILQ_INIT(&q);
 
 	msgbuf_init(&msgq);
-	msgq.fd = fd;
 
 	pfd.fd = fd;
 
@@ -1094,7 +1093,7 @@ proc_parser(int fd)
 		}
 
 		if (pfd.revents & POLLOUT) {
-			if (msgbuf_write(&msgq) == -1) {
+			if (msgbuf_write(fd, &msgq) == -1) {
 				if (errno == EPIPE)
 					errx(1, "write: connection closed");
 				else

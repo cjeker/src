@@ -1232,10 +1232,6 @@ main(int argc, char *argv[])
 	msgbuf_init(&rsyncq);
 	msgbuf_init(&httpq);
 	msgbuf_init(&rrdpq);
-	procq.fd = procfd;
-	rsyncq.fd = rsyncfd;
-	httpq.fd = httpfd;
-	rrdpq.fd = rrdpfd;
 
 	/*
 	 * The main process drives the top-down scan to leaf ROAs using
@@ -1307,7 +1303,7 @@ main(int argc, char *argv[])
 			if (pfd[i].revents & POLLHUP)
 				hangup = 1;
 			if (pfd[i].revents & POLLOUT) {
-				if (msgbuf_write(queues[i]) == -1) {
+				if (msgbuf_write(pfd[i].fd, queues[i]) == -1) {
 					if (errno == EPIPE)
 						warnx("write[%d]: "
 						    "connection closed", i);

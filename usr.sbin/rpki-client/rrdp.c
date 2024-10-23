@@ -544,7 +544,6 @@ proc_rrdp(int fd)
 		err(1, "pledge");
 
 	msgbuf_init(&msgq);
-	msgq.fd = fd;
 
 	for (;;) {
 		i = 1;
@@ -597,7 +596,7 @@ proc_rrdp(int fd)
 		if (pfds[0].revents & POLLHUP)
 			break;
 		if (pfds[0].revents & POLLOUT) {
-			if (msgbuf_write(&msgq) == -1) {
+			if (msgbuf_write(fd, &msgq) == -1) {
 				if (errno == EPIPE)
 					errx(1, "write: connection closed");
 				else
