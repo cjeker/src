@@ -32,6 +32,11 @@
 
 #include "imsg.h"
 
+struct msgbuf {
+	TAILQ_HEAD(, ibuf)	 bufs;
+	uint32_t		 queued;
+};
+
 static void	msgbuf_enqueue(struct msgbuf *, struct ibuf *);
 static void	msgbuf_dequeue(struct msgbuf *, struct ibuf *);
 static void	msgbuf_drain(struct msgbuf *, size_t);
@@ -546,11 +551,25 @@ ibuf_fd_set(struct ibuf *buf, int fd)
 		buf->fd = fd;
 }
 
-void
-msgbuf_init(struct msgbuf *msgbuf)
+struct msgbuf *
+msgbuf_new(void)
 {
+	struct msgbuf *msgbuf;
+
+	if ((msgbuf = calloc(1, sizeof(*msgbuf))) == NULL)
+		return (NULL);
 	msgbuf->queued = 0;
 	TAILQ_INIT(&msgbuf->bufs);
+
+	return msgbuf;
+}
+
+void
+msgbuf_free(struct msgbuf *msgbuf)
+{
+	if (msgbuf != NULL)
+		msgbuf_clear(msgbuf);
+	free(msgbuf);
 }
 
 uint32_t
