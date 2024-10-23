@@ -218,7 +218,7 @@ struct peer {
 	struct bgpd_addr	 local_alt;
 	struct bgpd_addr	 remote;
 	struct timer_head	 timers;
-	struct msgbuf		 wbuf;
+	struct msgbuf		*wbuf;
 	struct buf_read		*rbuf;
 	struct peer		*template;
 	int			 fd;
