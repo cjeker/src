@@ -25,6 +25,7 @@
 #include <sys/limits.h>
 #include <sys/atomic.h>
 #include <sys/witness.h>
+#include <sys/tracepoint.h>
 
 #ifdef RWDIAG
 #include <sys/kernel.h> /* for hz */
@@ -115,6 +116,7 @@ rw_do_exit_read(struct rwlock *rwl, unsigned long owner)
 	unsigned long nowner;
 
 	WITNESS_UNLOCK(&rwl->rwl_lock_obj, 0);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_SHARED);
 
 	for (;;) {
 		decr = owner - RWLOCK_READ_INCR;
@@ -149,6 +151,7 @@ rw_exit_write(struct rwlock *rwl)
 	unsigned long owner;
 
 	WITNESS_UNLOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_EXCL);
 
 	membar_exit_before_atomic();
 	owner = rw_cas(&rwl->rwl_owner, self, 0);
@@ -240,6 +243,7 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 	owner = rw_cas(&rwl->rwl_owner, 0, self);
 	if (owner == 0) {
 		/* wow, we won. so easy */
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_EXCL);
 		goto locked;
 	}
 	if (__predict_false(owner == self)) {
@@ -247,6 +251,7 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 		    rwl->rwl_name, rwl);
 	}
 
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_START);
 #ifdef MULTIPROCESSOR
 	/*
 	 * If process holds the kernel lock, then we want to give up on CPU
@@ -280,8 +285,10 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 	}
 #endif
 
-	if (ISSET(flags, RW_NOSLEEP))
+	if (ISSET(flags, RW_NOSLEEP)) {
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_ABORT);
 		return (EBUSY);
+	}
 
 	prio = PLOCK - 4;
 	if (ISSET(flags, RW_INTR))
@@ -304,6 +311,8 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 #endif
 		if (ISSET(flags, RW_INTR) && (error != 0)) {
 			rw_dec(&rwl->rwl_waiters);
+			LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
+			    LLTRACE_LK_A_ABORT);
 			return (error);
 		}
 
@@ -314,6 +323,7 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 locked:
 	membar_enter_after_atomic();
 	WITNESS_LOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_EXCL);
 
 	return (0);
 }
@@ -354,6 +364,7 @@ rw_do_enter_read(struct rwlock *rwl, int flags)
 	owner = rw_cas(&rwl->rwl_owner, 0, RWLOCK_READ_INCR);
 	if (owner == 0) {
 		/* ermagerd, we won! */
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_SHARED);
 		goto locked;
 	}
 
@@ -365,12 +376,18 @@ rw_do_enter_read(struct rwlock *rwl, int flags)
 	} else if (atomic_load_int(&rwl->rwl_waiters) == 0) {
 		if (rw_read_incr(rwl, owner)) {
 			/* nailed it */
+			LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
+			    LLTRACE_LK_I_SHARED);
 			goto locked;
 		}
 	}
 
-	if (ISSET(flags, RW_NOSLEEP))
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_START);
+
+	if (ISSET(flags, RW_NOSLEEP)) {
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_ABORT);
 		return (EBUSY);
+	}
 
 	prio = PLOCK;
 	if (ISSET(flags, RW_INTR))
@@ -392,6 +409,8 @@ rw_do_enter_read(struct rwlock *rwl, int flags)
 		}
 #endif
 		if (ISSET(flags, RW_INTR) && (error != 0)) {
+			LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
+			    LLTRACE_LK_A_ABORT);
 			rw_dec(&rwl->rwl_readers);
 			return (error);
 		}
@@ -401,6 +420,7 @@ rw_do_enter_read(struct rwlock *rwl, int flags)
 locked:
 	membar_enter_after_atomic();
 	WITNESS_LOCK(&rwl->rwl_lock_obj, 0);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_SHARED);
 
 	return (0);
 }
@@ -427,6 +447,7 @@ rw_downgrade(struct rwlock *rwl, int flags)
 		WITNESS_DOWNGRADE(&rwl->rwl_lock_obj, lop_flags);
 	}
 #endif
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_DOWNGRADE);
 
 	membar_consumer();
 	if (atomic_load_int(&rwl->rwl_waiters) == 0 &&
