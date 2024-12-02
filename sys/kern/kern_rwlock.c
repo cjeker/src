@@ -115,6 +115,7 @@ rw_do_exit_read(struct rwlock *rwl, unsigned long owner)
 	unsigned long nowner;
 
 	WITNESS_UNLOCK(&rwl->rwl_lock_obj, 0);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_SHARED);
 
 	for (;;) {
 		decr = owner - RWLOCK_READ_INCR;
@@ -149,6 +150,7 @@ rw_exit_write(struct rwlock *rwl)
 	unsigned long owner;
 
 	WITNESS_UNLOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_EXCL);
 
 	membar_exit_before_atomic();
 	owner = rw_cas(&rwl->rwl_owner, self, 0);
@@ -238,6 +240,7 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 	if (owner == 0) {
 		/* wow, we won. so easy */
 		TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 2, 1);
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_EXCL);
 		goto locked;
 	}
 	if (__predict_false(owner == self)) {
@@ -245,6 +248,7 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 		    rwl->rwl_name, rwl);
 	}
 
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_START);
 #ifdef MULTIPROCESSOR
 	/*
 	 * If process holds the kernel lock, then we want to give up on CPU
@@ -282,6 +286,7 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 
 	if (ISSET(flags, RW_NOSLEEP)) {
 		TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 2, 4);
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_ABORT);
 		return (EBUSY);
 	}
 
@@ -307,6 +312,8 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 		if (ISSET(flags, RW_INTR) && (error != 0)) {
 			rw_dec(&rwl->rwl_waiters);
 			TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 2, 4);
+			LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
+			    LLTRACE_LK_A_ABORT);
 			return (error);
 		}
 
@@ -318,6 +325,7 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 locked:
 	membar_enter_after_atomic();
 	WITNESS_LOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_EXCL);
 
 	return (0);
 }
@@ -359,6 +367,7 @@ rw_do_enter_read(struct rwlock *rwl, int flags)
 	if (owner == 0) {
 		/* ermagerd, we won! */
 		TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 1, 1);
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_SHARED);
 		goto locked;
 	}
 
@@ -371,12 +380,16 @@ rw_do_enter_read(struct rwlock *rwl, int flags)
 		if (rw_read_incr(rwl, owner)) {
 			/* nailed it */
 			TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 1, 2);
+			LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
+			    LLTRACE_LK_I_SHARED);
 			goto locked;
 		}
 	}
 
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_START);
 	if (ISSET(flags, RW_NOSLEEP)) {
 		TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 1, 4);
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_ABORT);
 		return (EBUSY);
 	}
 
@@ -402,6 +415,8 @@ rw_do_enter_read(struct rwlock *rwl, int flags)
 		if (ISSET(flags, RW_INTR) && (error != 0)) {
 			rw_dec(&rwl->rwl_readers);
 			TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 1, 4);
+			LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
+			    LLTRACE_LK_A_ABORT);
 			return (error);
 		}
 	} while (!rw_read_incr(rwl, 0));
@@ -411,6 +426,7 @@ rw_do_enter_read(struct rwlock *rwl, int flags)
 locked:
 	membar_enter_after_atomic();
 	WITNESS_LOCK(&rwl->rwl_lock_obj, 0);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_SHARED);
 
 	return (0);
 }
@@ -437,6 +453,7 @@ rw_downgrade(struct rwlock *rwl, int flags)
 		WITNESS_DOWNGRADE(&rwl->rwl_lock_obj, lop_flags);
 	}
 #endif
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_DOWNGRADE);
 
 	membar_consumer();
 	if (atomic_load_int(&rwl->rwl_waiters) == 0 &&
