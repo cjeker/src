@@ -71,11 +71,12 @@ rw_dec(volatile unsigned int *p)
 }
 #endif
 
-static int	rw_do_enter_read(struct rwlock *, int);
-static void	rw_do_exit_read(struct rwlock *, unsigned long);
-static int	rw_do_enter_write(struct rwlock *, int);
-static int	rw_downgrade(struct rwlock *, int);
-static int	rw_upgrade(struct rwlock *, int);
+static int	rw_do_enter_read(struct rwlock *, int, unsigned long);
+static void	rw_do_exit_read(struct rwlock *, unsigned long, unsigned long);
+static int	rw_do_enter_write(struct rwlock *, int, unsigned long);
+static void	rw_do_exit_write(struct rwlock *, unsigned long);
+static int	rw_downgrade(struct rwlock *, int, unsigned long);
+static int	rw_upgrade(struct rwlock *, int, unsigned long);
 
 static void	rw_exited(struct rwlock *);
 
@@ -93,30 +94,33 @@ rw_self(void)
 void
 rw_enter_read(struct rwlock *rwl)
 {
-	rw_do_enter_read(rwl, 0);
+	unsigned long pc = (unsigned long)__builtin_return_address(0);
+	rw_do_enter_read(rwl, 0, pc);
 }
 
 void
 rw_enter_write(struct rwlock *rwl)
 {
-	rw_do_enter_write(rwl, 0);
+	unsigned long pc = (unsigned long)__builtin_return_address(0);
+	rw_do_enter_write(rwl, 0, pc);
 }
 
 void
 rw_exit_read(struct rwlock *rwl)
 {
+	unsigned long pc = (unsigned long)__builtin_return_address(0);
 	/* maybe we're the last one? */
-	rw_do_exit_read(rwl, RWLOCK_READ_INCR);
+	rw_do_exit_read(rwl, RWLOCK_READ_INCR, pc);
 }
 
 static void
-rw_do_exit_read(struct rwlock *rwl, unsigned long owner)
+rw_do_exit_read(struct rwlock *rwl, unsigned long owner, unsigned long pc)
 {
 	unsigned long decr;
 	unsigned long nowner;
 
 	WITNESS_UNLOCK(&rwl->rwl_lock_obj, 0);
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_SHARED);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_SHARED, pc);
 
 	for (;;) {
 		decr = owner - RWLOCK_READ_INCR;
@@ -147,11 +151,18 @@ rw_do_exit_read(struct rwlock *rwl, unsigned long owner)
 void
 rw_exit_write(struct rwlock *rwl)
 {
+	unsigned long pc = (unsigned long)__builtin_return_address(0);
+	rw_do_exit_write(rwl, pc);
+}
+
+static void
+rw_do_exit_write(struct rwlock *rwl, unsigned long pc)
+{
 	unsigned long self = rw_self();
 	unsigned long owner;
 
 	WITNESS_UNLOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_EXCL);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_R_EXCL, pc);
 
 	membar_exit_before_atomic();
 	owner = rw_cas(&rwl->rwl_owner, self, 0);
@@ -199,21 +210,22 @@ _rw_init_flags(struct rwlock *rwl, const char *name, int flags,
 int
 rw_enter(struct rwlock *rwl, int flags)
 {
+	unsigned long pc = (unsigned long)__builtin_return_address(0);
 	int op = flags & RW_OPMASK;
 	int error;
 
 	switch (op) {
 	case RW_WRITE:
-		error = rw_do_enter_write(rwl, flags);
+		error = rw_do_enter_write(rwl, flags, pc);
 		break;
 	case RW_READ:
-		error = rw_do_enter_read(rwl, flags);
+		error = rw_do_enter_read(rwl, flags, pc);
 		break;
 	case RW_DOWNGRADE:
-		error = rw_downgrade(rwl, flags);
+		error = rw_downgrade(rwl, flags, pc);
 		break;
 	case RW_UPGRADE:
-		error = rw_upgrade(rwl, flags);
+		error = rw_upgrade(rwl, flags, pc);
 		break;
 	default:
 		panic("%s rwlock %p: %s unexpected op 0x%x",
@@ -225,7 +237,7 @@ rw_enter(struct rwlock *rwl, int flags)
 }
 
 static int
-rw_do_enter_write(struct rwlock *rwl, int flags)
+rw_do_enter_write(struct rwlock *rwl, int flags, unsigned long pc)
 {
 	unsigned long self = rw_self();
 	unsigned long owner;
@@ -245,7 +257,8 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 	if (owner == 0) {
 		/* wow, we won. so easy */
 		TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 2, 1);
-		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_EXCL);
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_EXCL,
+		    pc);
 		goto locked;
 	}
 	if (__predict_false(owner == self)) {
@@ -253,7 +266,7 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 		    rwl->rwl_name, rwl);
 	}
 
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_START);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_START, pc);
 #ifdef MULTIPROCESSOR
 	/*
 	 * If process holds the kernel lock, then we want to give up on CPU
@@ -291,7 +304,8 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 
 	if (ISSET(flags, RW_NOSLEEP)) {
 		TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 2, 4);
-		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_ABORT);
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_ABORT,
+		    pc);
 		return (EBUSY);
 	}
 
@@ -318,7 +332,7 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 			rw_dec(&rwl->rwl_waiters);
 			TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 2, 4);
 			LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
-			    LLTRACE_LK_A_ABORT);
+			    LLTRACE_LK_A_ABORT, pc);
 			return (error);
 		}
 
@@ -330,7 +344,7 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 locked:
 	membar_enter_after_atomic();
 	WITNESS_LOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_EXCL);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_EXCL, pc);
 
 	return (0);
 }
@@ -354,7 +368,7 @@ rw_read_incr(struct rwlock *rwl, unsigned long owner)
 }
 
 static int
-rw_do_enter_read(struct rwlock *rwl, int flags)
+rw_do_enter_read(struct rwlock *rwl, int flags, unsigned long pc)
 {
 	unsigned long owner;
 	int error;
@@ -372,7 +386,8 @@ rw_do_enter_read(struct rwlock *rwl, int flags)
 	if (owner == 0) {
 		/* ermagerd, we won! */
 		TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 1, 1);
-		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_SHARED);
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_I_SHARED,
+		    pc);
 		goto locked;
 	}
 
@@ -386,16 +401,17 @@ rw_do_enter_read(struct rwlock *rwl, int flags)
 			/* nailed it */
 			TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 1, 2);
 			LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
-			    LLTRACE_LK_I_SHARED);
+			    LLTRACE_LK_I_SHARED, pc);
 			goto locked;
 		}
 	}
 
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_START);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_START, pc);
 
 	if (ISSET(flags, RW_NOSLEEP)) {
 		TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 1, 4);
-		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_ABORT);
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_ABORT,
+		    pc);
 		return (EBUSY);
 	}
 
@@ -420,7 +436,7 @@ rw_do_enter_read(struct rwlock *rwl, int flags)
 #endif
 		if (ISSET(flags, RW_INTR) && (error != 0)) {
 			LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
-			    LLTRACE_LK_A_ABORT);
+			    LLTRACE_LK_A_ABORT, pc);
 			rw_dec(&rwl->rwl_readers);
 			TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 1, 4);
 			return (error);
@@ -432,13 +448,13 @@ rw_do_enter_read(struct rwlock *rwl, int flags)
 locked:
 	membar_enter_after_atomic();
 	WITNESS_LOCK(&rwl->rwl_lock_obj, 0);
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_SHARED);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_SHARED, pc);
 
 	return (0);
 }
 
 static int
-rw_downgrade(struct rwlock *rwl, int flags)
+rw_downgrade(struct rwlock *rwl, int flags, unsigned long pc)
 {
 	unsigned long self = rw_self();
 	unsigned long owner;
@@ -459,7 +475,7 @@ rw_downgrade(struct rwlock *rwl, int flags)
 		WITNESS_DOWNGRADE(&rwl->rwl_lock_obj, lop_flags);
 	}
 #endif
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_DOWNGRADE);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_DOWNGRADE, pc);
 
 	membar_consumer();
 	if (atomic_load_int(&rwl->rwl_waiters) == 0 &&
@@ -470,7 +486,7 @@ rw_downgrade(struct rwlock *rwl, int flags)
 }
 
 static int
-rw_upgrade(struct rwlock *rwl, int flags)
+rw_upgrade(struct rwlock *rwl, int flags, unsigned long pc)
 {
 	unsigned long self = rw_self();
 	unsigned long owner;
@@ -489,6 +505,8 @@ rw_upgrade(struct rwlock *rwl, int flags)
 			    owner, self);
 		}
 		TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 3, 4);
+		LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_ABORT,
+		    pc);
 		return (EBUSY);
 	}
 	TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 3, 1);
@@ -501,6 +519,7 @@ rw_upgrade(struct rwlock *rwl, int flags)
 		WITNESS_UPGRADE(&rwl->rwl_lock_obj, lop_flags);
 	}
 #endif
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_UPGRADE, pc);
 
 	return (0);
 }
@@ -508,6 +527,7 @@ rw_upgrade(struct rwlock *rwl, int flags)
 void
 rw_exit(struct rwlock *rwl)
 {
+	unsigned long pc = (unsigned long)__builtin_return_address(0);
 	unsigned long owner;
 
 	owner = atomic_load_long(&rwl->rwl_owner);
@@ -517,9 +537,9 @@ rw_exit(struct rwlock *rwl)
 	}
 
 	if (ISSET(owner, RWLOCK_WRLOCK))
-		rw_exit_write(rwl);
+		rw_do_exit_write(rwl, pc);
 	else
-		rw_do_exit_read(rwl, owner);
+		rw_do_exit_read(rwl, owner, pc);
 }
 
 static void
