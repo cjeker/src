@@ -232,6 +232,7 @@ struct lltrace_header {
 #define LLTRACE_LK_R_EXCL		0x7 /* released wr lock */
 #define LLTRACE_LK_R_SHARED		0x8 /* released rd lock */
 #define LLTRACE_LK_I_FAIL		0x9 /* try failed */
+#define LLTRACE_LK_UPGRADE		0x6 /* rd to wr lock */
 
 #define LLTRACE_LK_ADDR_SHIFT		\
     (LLTRACE_LK_PHASE_SHIFT + LLTRACE_LK_PHASE_WIDTH)
