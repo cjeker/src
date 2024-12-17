@@ -348,6 +348,9 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 		 * and calculate the total times.
 		 */
 		calcru(&pr->ps_tu, &rup->ru_utime, &rup->ru_stime, NULL);
+		rup->ru_ixrss = pr->ps_tu.tu_ixrss;
+		rup->ru_idrss = pr->ps_tu.tu_idrss;
+		rup->ru_isrss = pr->ps_tu.tu_isrss;
 		ruadd(rup, &pr->ps_cru);
 
 		/*
