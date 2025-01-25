@@ -164,13 +164,11 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 	pr->ps_exitcnt++;
 
 	/*
-	 * if somebody else wants to take us to single threaded mode,
-	 * count ourselves out.
+	 * if somebody else wants to take us to single threaded mode
+	 * or stop us, count ourselves out.
 	 */
-	if (pr->ps_single) {
-		if (--pr->ps_singlecnt == 0)
-			wakeup(&pr->ps_singlecnt);
-	}
+	if (pr->ps_single || ISSET(pr->ps_flags, PS_STOPPING))
+		process_suspend_signal(pr);
 
 	/* proc is off ps_threads list so update accounting of process now */
 	tuagg_add_runtime();

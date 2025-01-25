@@ -191,7 +191,7 @@ struct process {
 
 	struct	proc *ps_single;	/* [m] Thread for single-threading. */
 	struct	proc *ps_trapped;	/* [m] Thread trapped for ptrace. */
-	u_int	ps_singlecnt;		/* [m] Number of threads to suspend. */
+	u_int	ps_suspendcnt;		/* [m] Number of threads to suspend. */
 	u_int	ps_exitcnt;		/* [m] Number of threads in exit1. */
 
 	int	ps_traceflag;		/* Kernel trace points. */
@@ -606,6 +606,8 @@ int	single_thread_wait(struct process *, int);
 void	single_thread_clear(struct proc *);
 
 int	proc_suspend_check(struct proc *, int);
+void	process_suspend_signal(struct process *);
+void	process_stop(struct process *, int, int);
 
 void	child_return(void *);
 

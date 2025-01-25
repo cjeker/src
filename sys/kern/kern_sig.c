@@ -121,12 +121,9 @@ const int sigprop[NSIG] = {
 void setsigvec(struct proc *, int, struct sigaction *);
 
 int proc_trap(struct proc *, int);
-void proc_stop(struct proc *p, int);
-void proc_stop_sweep(void *);
-void *proc_stop_si;
+void proc_stop(struct proc *p);
 
 void process_continue(struct process *, int);
-void process_stop(struct process *, int, int);
 
 void setsigctx(struct proc *, int, struct sigctx *);
 void postsig_done(struct proc *, int, sigset_t, int);
@@ -203,11 +200,6 @@ cansignal(struct proc *p, struct process *qr, int signum)
 void
 signal_init(void)
 {
-	proc_stop_si = softintr_establish(IPL_SOFTCLOCK, proc_stop_sweep,
-	    NULL);
-	if (proc_stop_si == NULL)
-		panic("signal_init failed to register softintr");
-
 	pool_init(&sigacts_pool, sizeof(struct sigacts), 0, IPL_NONE,
 	    PR_WAITOK, "sigapl", NULL);
 }
@@ -917,7 +909,6 @@ prsignal(struct process *pr, int signum)
 /*
  * type = SPROCESS	process signal, can be diverted (sigwait())
  * type = STHREAD	thread signal, but should be propagated if unhandled
- * type = SPROPAGATED	propagated to this thread, so don't propagate again
  */
 void
 ptsignal(struct proc *p, int signum, enum signal_type type)
@@ -1009,8 +1000,7 @@ ptsignal_locked(struct proc *p, int signum, enum signal_type type)
 		}
 	}
 
-	if (type != SPROPAGATED)
-		knote_locked(&pr->ps_klist, NOTE_SIGNAL | signum);
+	knote_locked(&pr->ps_klist, NOTE_SIGNAL | signum);
 
 	prop = sigprop[signum];
 
@@ -1058,20 +1048,11 @@ ptsignal_locked(struct proc *p, int signum, enum signal_type type)
 	}
 	/*
 	 * If delivered to process, mark as pending there.  Continue and stop
-	 * signals will be propagated to all threads.  So they are always
-	 * marked at thread level.
+	 * signals are always marked at process level.
 	 */
 	siglist = (type == SPROCESS) ? &pr->ps_siglist : &p->p_siglist;
 	if (prop & (SA_CONT | SA_STOP))
-		siglist = &p->p_siglist;
-
-	/*
-	 * XXX delay processing of SA_STOP signals unless action == SIG_DFL?
-	 */
-	if (prop & SA_STOP && type != SPROPAGATED)
-		TAILQ_FOREACH(q, &pr->ps_threads, p_thr_link)
-			if (q != p)
-				ptsignal_locked(q, signum, SPROPAGATED);
+		siglist = &pr->ps_siglist;
 
 	SCHED_LOCK();
 
@@ -1222,7 +1203,9 @@ ptsignal_locked(struct proc *p, int signum, enum signal_type type)
 				goto out;
 			mask = 0;
 			pr->ps_xsig = signum;
-			proc_stop(p, 0);
+			atomic_setbits_int(&pr->ps_flags, PS_STOPPING);
+			process_stop(pr, P_SUSPSIG, SINGLE_SUSPEND);
+			wakeparent = 1;
 			goto out;
 		}
 		/*
@@ -1270,8 +1253,13 @@ out:
 
 	SCHED_UNLOCK();
 	if (wakeparent) {
-		atomic_setbits_int(&pr->ps_pptr->ps_flags, PS_WAITEVENT);
-		wakeup(pr->ps_pptr);
+		if (prop & SA_STOP)
+			process_suspend_signal(pr);
+		else {
+			atomic_setbits_int(&pr->ps_pptr->ps_flags,
+			    PS_WAITEVENT);
+			wakeup(pr->ps_pptr);
+		}
 	}
 }
 
@@ -1446,10 +1434,16 @@ cursig(struct proc *p, struct sigctx *sctx, int deep)
 			 * then clear the signal.
 			 */
 			if (sctx->sig_stop) {
+				mtx_enter(&pr->ps_mtx);
 				pr->ps_xsig = signum;
+				atomic_setbits_int(&pr->ps_flags, PS_STOPPING);
 				SCHED_LOCK();
-				proc_stop(p, 1);
+				process_stop(pr, P_SUSPSIG, SINGLE_SUSPEND);
 				SCHED_UNLOCK();
+				atomic_setbits_int(&p->p_flag, P_SUSPSIG);
+				process_suspend_signal(pr);
+				proc_stop(p);
+				mtx_leave(&pr->ps_mtx);
 				break;
 			} else if (prop & SA_IGNORE) {
 				/*
@@ -1504,14 +1498,13 @@ proc_trap(struct proc *p, int signum)
 	mtx_enter(&pr->ps_mtx);
 	pr->ps_xsig = signum;
 	pr->ps_trapped = p;
+	atomic_setbits_int(&pr->ps_flags, PS_TRAPPED);
 	mtx_leave(&pr->ps_mtx);
 
-	SCHED_LOCK();
-	atomic_setbits_int(&pr->ps_flags, PS_TRAPPED);
-	proc_stop(p, 1);
+	/* XXX more here */
+	proc_stop(p);
 	atomic_clearbits_int(&pr->ps_flags,
 	    PS_WAITED | PS_STOPPED | PS_TRAPPED);
-	SCHED_UNLOCK();
 
 	mtx_enter(&pr->ps_mtx);
 	signum = pr->ps_xsig;
@@ -1586,10 +1579,10 @@ process_stop(struct process *pr, int flag, int mode)
 	/* skip curproc if it is part of pr, caller takes care of that */
 	if (curproc->p_p == pr) {
 		p = curproc;
-		KASSERT(ISSET(p->p_flag, P_SUSPSINGLE) == 0);
+		KASSERT(ISSET(p->p_flag, P_SUSPSINGLE | P_SUSPSIG) == 0);
 	}
 
-	pr->ps_singlecnt = pr->ps_threadcnt;
+	pr->ps_suspendcnt = pr->ps_threadcnt;
 	TAILQ_FOREACH(q, &pr->ps_threads, p_thr_link) {
 		if (q == p)
 			continue;
@@ -1608,7 +1601,7 @@ process_stop(struct process *pr, int flag, int mode)
 				unsleep(q);
 				setrunnable(q);
 			} else
-				--pr->ps_singlecnt;
+				--pr->ps_suspendcnt;
 			break;
 		case SSLEEP:
 			/* if it's not interruptible, then just have to wait */
@@ -1616,7 +1609,7 @@ process_stop(struct process *pr, int flag, int mode)
 				/* merely need to suspend?  just stop it */
 				if (mode == SINGLE_SUSPEND) {
 					q->p_stat = SSTOP;
-					--pr->ps_singlecnt;
+					--pr->ps_suspendcnt;
 				} else {
 					/* need to unwind or exit, so wake it */
 					unsleep(q);
@@ -1642,51 +1635,58 @@ process_stop(struct process *pr, int flag, int mode)
  * on the run queue.
  */
 void
-proc_stop(struct proc *p, int sw)
+proc_stop(struct proc *p)
 {
 	struct process *pr = p->p_p;
 
-#ifdef MULTIPROCESSOR
-	SCHED_ASSERT_LOCKED();
-#endif
-	/* do not stop exiting procs */
-	if (ISSET(p->p_flag, P_WEXIT))
-		return;
+	MUTEX_ASSERT_LOCKED(&pr->ps_mtx);
 
-	p->p_stat = SSTOP;
-	atomic_clearbits_int(&pr->ps_flags, PS_WAITED);
-	atomic_setbits_int(&pr->ps_flags, PS_STOPPING);
-	atomic_setbits_int(&p->p_flag, P_SUSPSIG);
 	/*
-	 * We need this soft interrupt to be handled fast.
-	 * Extra calls to softclock don't hurt.
+	 * XXX to mi_switch we need to release the ps_mtx but then
+	 * another ptsignal can race against this thread and see
+	 * it in the wrong state. So instead set p_stat while still
+	 * holding the ps_mtx.
+	 * We still have an issue when dropping the ps_mtx and grabbing
+	 * the SCHED_LOCK but that can't be fixed.
 	 */
-	softintr_schedule(proc_stop_si);
-	if (sw)
-		mi_switch();
+	SCHED_LOCK();
+	p->p_stat = SSTOP;
+	SCHED_UNLOCK();
+	mtx_leave(&pr->ps_mtx);
+	SCHED_LOCK();
+	mi_switch();
+	SCHED_UNLOCK();
+	mtx_enter(&pr->ps_mtx);
 }
 
 /*
- * Called from a soft interrupt to send signals to the parents of stopped
- * processes.
- * We can't do this in proc_stop because it's called with nasty locks held
- * and we would need recursive scheduler lock to deal with that.
+ * Signal either the parent process or the ps_single thread depending on
+ * the mode. Only do this if the suspendcnt dropped to 0. If curproc part
+ * of the process count it out first.
  */
 void
-proc_stop_sweep(void *v)
+process_suspend_signal(struct process *pr)
 {
-	struct process *pr;
+	MUTEX_ASSERT_LOCKED(&pr->ps_mtx);
 
-	LIST_FOREACH(pr, &allprocess, ps_list) {
-		if ((pr->ps_flags & PS_STOPPING) == 0)
-			continue;
+	/* if part of the process, count us out */
+	if (curproc->p_p == pr)
+		--pr->ps_suspendcnt;
+
+	if (pr->ps_suspendcnt != 0)
+		return;
+
+	if (pr->ps_single == NULL) {
+		atomic_clearbits_int(&pr->ps_flags,
+		    PS_STOPPING | PS_WAITED | PS_CONTINUED);
 		atomic_setbits_int(&pr->ps_flags, PS_STOPPED);
-		atomic_clearbits_int(&pr->ps_flags, PS_STOPPING);
 
 		if ((pr->ps_pptr->ps_sigacts->ps_sigflags & SAS_NOCLDSTOP) == 0)
 			prsignal(pr->ps_pptr, SIGCHLD);
 		atomic_setbits_int(&pr->ps_pptr->ps_flags, PS_WAITEVENT);
 		wakeup(pr->ps_pptr);
+	} else {
+		wakeup(&pr->ps_suspendcnt);
 	}
 }
 
@@ -2156,7 +2156,7 @@ userret(struct proc *p)
 	struct sigctx ctx;
 	int signum;
 
-	if (p->p_flag & P_SUSPSINGLE)
+	if (p->p_flag & (P_SUSPSINGLE | P_SUSPSIG))
 		proc_suspend_check(p, 0);
 
 	/* send SIGPROF or SIGVTALRM if their timers interrupted this thread */
@@ -2200,7 +2200,8 @@ proc_suspend_check_locked(struct proc *p, int deep)
 
 	MUTEX_ASSERT_LOCKED(&pr->ps_mtx);
 
-	if (pr->ps_single == NULL || pr->ps_single == p)
+	if ((pr->ps_single == NULL || pr->ps_single == p) &&
+	    !ISSET(pr->ps_flags, PS_STOPPING))
 		return (0);
 
 	/* if we're in deep, we need to unwind to the edge */
@@ -2225,18 +2226,11 @@ proc_suspend_check_locked(struct proc *p, int deep)
 			/* NOTREACHED */
 		}
 
-		if (--pr->ps_singlecnt == 0)
-			wakeup(&pr->ps_singlecnt);
+		process_suspend_signal(pr);
 
 		/* not exiting and don't need to unwind, so suspend */
-		mtx_leave(&pr->ps_mtx);
-
-		SCHED_LOCK();
-		p->p_stat = SSTOP;
-		mi_switch();
-		SCHED_UNLOCK();
-		mtx_enter(&pr->ps_mtx);
-	} while (pr->ps_single != NULL);
+		proc_stop(p);
+	} while (pr->ps_single != NULL || ISSET(pr->ps_flags, PS_STOPPING));
 
 	return (0);
 }
@@ -2299,7 +2293,7 @@ single_thread_set(struct proc *p, int flags)
 	SCHED_UNLOCK();
 
 	/* count ourself out */
-	--pr->ps_singlecnt;
+	--pr->ps_suspendcnt;
 	mtx_leave(&pr->ps_mtx);
 
 	if ((flags & SINGLE_NOWAIT) == 0)
@@ -2320,8 +2314,8 @@ single_thread_wait(struct process *pr, int recheck)
 
 	/* wait until they're all suspended */
 	mtx_enter(&pr->ps_mtx);
-	while ((wait = pr->ps_singlecnt > 0)) {
-		msleep_nsec(&pr->ps_singlecnt, &pr->ps_mtx, PWAIT, "suspend",
+	while ((wait = pr->ps_suspendcnt > 0)) {
+		msleep_nsec(&pr->ps_suspendcnt, &pr->ps_mtx, PWAIT, "suspend",
 		    INFSLP);
 		if (!recheck)
 			break;
