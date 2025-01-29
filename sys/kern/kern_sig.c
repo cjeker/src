@@ -131,6 +131,7 @@ void postsig(struct proc *, int, struct sigctx *);
 int cansignal(struct proc *, struct process *, int);
 
 void ptsignal_locked(struct proc *, int, enum signal_type);
+int proc_suspend_check_locked(struct proc *, int);
 
 struct pool sigacts_pool;	/* memory pool for sigacts structures */
 
@@ -1493,28 +1494,42 @@ proc_trap(struct proc *p, int signum)
 {
 	struct process *pr = p->p_p;
 
-	single_thread_set(p, SINGLE_SUSPEND | SINGLE_NOWAIT);
-
 	mtx_enter(&pr->ps_mtx);
+	/*
+	 * Wait until any other suspend condition cleared,
+	 * including other traps.
+	 */
+	proc_suspend_check_locked(p, 0);
+
+	atomic_setbits_int(&pr->ps_flags, PS_STOPPING | PS_TRAPPED);
+	SCHED_LOCK();
+	process_stop(pr, P_SUSPSIG, SINGLE_SUSPEND);
+	SCHED_UNLOCK();
+	atomic_setbits_int(&p->p_flag, P_SUSPSIG);
 	pr->ps_xsig = signum;
 	pr->ps_trapped = p;
-	atomic_setbits_int(&pr->ps_flags, PS_TRAPPED);
-	mtx_leave(&pr->ps_mtx);
 
-	/* XXX more here */
+	process_suspend_signal(pr);
 	proc_stop(p);
+	/*
+	 * Clear all flags for proc and process by hand here since ptrace
+	 * just calls setrunnable on the thread without clearing anything.
+	 */
+	atomic_clearbits_int(&p->p_flag, P_SUSPSIG);
 	atomic_clearbits_int(&pr->ps_flags,
 	    PS_WAITED | PS_STOPPED | PS_TRAPPED);
 
-	mtx_enter(&pr->ps_mtx);
 	signum = pr->ps_xsig;
 	pr->ps_xsig = 0;
 	pr->ps_trapped = NULL;
-	mtx_leave(&pr->ps_mtx);
 
-	if ((p->p_flag & P_TRACESINGLE) == 0)
-		single_thread_clear(p);
+	if ((p->p_flag & P_TRACESINGLE) == 0) {
+		SCHED_LOCK();
+		process_continue(pr, P_SUSPSIG);
+		SCHED_UNLOCK();
+	}
 	atomic_clearbits_int(&p->p_flag, P_TRACESINGLE);
+	mtx_leave(&pr->ps_mtx);
 
 	return signum;
 }
@@ -1555,7 +1570,8 @@ process_continue(struct process *pr, int flag)
 		 * Clearing either makes the thread runnable or puts
 		 * it back into some sleep queue.
 		 */
-		if (q->p_stat == SSTOP) {
+		if (q->p_stat == SSTOP &&
+		    ISSET(q->p_flag, P_SUSPSIG | P_SUSPSINGLE) == 0) {
 			if (q->p_wchan == NULL)
 				setrunnable(q);
 			else
@@ -1579,7 +1595,7 @@ process_stop(struct process *pr, int flag, int mode)
 	/* skip curproc if it is part of pr, caller takes care of that */
 	if (curproc->p_p == pr) {
 		p = curproc;
-		KASSERT(ISSET(p->p_flag, P_SUSPSINGLE | P_SUSPSIG) == 0);
+		KASSERT(ISSET(p->p_flag, P_SUSPSIG | P_SUSPSINGLE) == 0);
 	}
 
 	pr->ps_suspendcnt = pr->ps_threadcnt;

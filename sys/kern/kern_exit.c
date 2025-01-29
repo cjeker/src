@@ -552,11 +552,9 @@ loop:
 		}
 		if ((options & WTRAPPED) && (pr->ps_flags & PS_TRACED) &&
 		    (pr->ps_flags & PS_WAITED) == 0 &&
+		    (pr->ps_flags & PS_STOPPED) &&
 		    (pr->ps_flags & PS_TRAPPED)) {
 			mtx_leave(&pr->ps_mtx);
-			if (single_thread_wait(pr, 0))
-				goto loop;
-
 			if ((options & WNOWAIT) == 0)
 				atomic_setbits_int(&pr->ps_flags, PS_WAITED);
 
