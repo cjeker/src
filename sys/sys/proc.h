@@ -599,7 +599,6 @@ refreshcreds(struct proc *p)
 #define	SINGLE_MASK	0x0f
 /* extra flags for single_thread_set */
 #define	SINGLE_DEEP	0x10	/* call is in deep */
-#define	SINGLE_NOWAIT	0x20	/* do not wait for other threads to stop */
 
 int	single_thread_set(struct proc *, int);
 int	single_thread_wait(struct process *, int);

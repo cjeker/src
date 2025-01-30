@@ -2312,9 +2312,7 @@ single_thread_set(struct proc *p, int flags)
 	--pr->ps_suspendcnt;
 	mtx_leave(&pr->ps_mtx);
 
-	if ((flags & SINGLE_NOWAIT) == 0)
-		single_thread_wait(pr, 1);
-
+	single_thread_wait(pr, 1);
 	return 0;
 }
 
