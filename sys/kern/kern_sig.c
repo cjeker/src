@@ -2310,34 +2310,14 @@ single_thread_set(struct proc *p, int flags)
 
 	/* count ourself out */
 	--pr->ps_suspendcnt;
-	mtx_leave(&pr->ps_mtx);
 
-	single_thread_wait(pr, 1);
-	return 0;
-}
-
-/*
- * Wait for other threads to stop. If recheck is false then the function
- * returns non-zero if the caller needs to restart the check else 0 is
- * returned. If recheck is true the return value is always 0.
- */
-int
-single_thread_wait(struct process *pr, int recheck)
-{
-	int wait;
-
-	/* wait until they're all suspended */
-	mtx_enter(&pr->ps_mtx);
-	while ((wait = pr->ps_suspendcnt > 0)) {
+	/* wait until all other threads suspended */
+	while (pr->ps_suspendcnt > 0)
 		msleep_nsec(&pr->ps_suspendcnt, &pr->ps_mtx, PWAIT, "suspend",
 		    INFSLP);
-		if (!recheck)
-			break;
-	}
-	KASSERT((pr->ps_single->p_flag & P_SUSPSINGLE) == 0);
 	mtx_leave(&pr->ps_mtx);
-
-	return wait;
+	KASSERT((pr->ps_single->p_flag & P_SUSPSINGLE) == 0);
+	return 0;
 }
 
 void

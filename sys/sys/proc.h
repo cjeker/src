@@ -601,7 +601,6 @@ refreshcreds(struct proc *p)
 #define	SINGLE_DEEP	0x10	/* call is in deep */
 
 int	single_thread_set(struct proc *, int);
-int	single_thread_wait(struct process *, int);
 void	single_thread_clear(struct proc *);
 
 int	proc_suspend_check(struct proc *, int);
