@@ -590,12 +590,13 @@ thread_fork(struct proc *curp, void *stack, void *tcb, pid_t *tidptr,
 	pr->ps_threadcnt++;
 
 	/*
-	 * if somebody else wants to take us to single threaded mode,
-	 * count ourselves in.
+	 * if somebody else wants to take us to single threaded mode
+	 * or suspend the process, count ourselves in.
 	 */
-	if (pr->ps_single || ISSET(pr->ps_flags, PS_STOPPING)) {
+	if (pr->ps_single != NULL || ISSET(pr->ps_flags, PS_STOPPING)) {
 		pr->ps_suspendcnt++;
-		atomic_setbits_int(&p->p_flag, P_SUSPSINGLE);
+		atomic_setbits_int(&p->p_flag,
+		    curp->p_flag & (P_SUSPSINGLE | P_SUSPSIG));
 	}
 	mtx_leave(&pr->ps_mtx);
 

@@ -2172,7 +2172,7 @@ userret(struct proc *p)
 	struct sigctx ctx;
 	int signum;
 
-	if (p->p_flag & (P_SUSPSINGLE | P_SUSPSIG))
+	if (atomic_load_int(&p->p_flag) & (P_SUSPSINGLE | P_SUSPSIG))
 		proc_suspend_check(p, 0);
 
 	/* send SIGPROF or SIGVTALRM if their timers interrupted this thread */
