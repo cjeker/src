@@ -61,6 +61,7 @@
 #include <sys/pledge.h>
 #include <sys/witness.h>
 #include <sys/exec_elf.h>
+#include <sys/tracepoint.h>
 
 #include <sys/mount.h>
 #include <sys/syscallargs.h>
@@ -121,7 +122,8 @@ const int sigprop[NSIG] = {
 void setsigvec(struct proc *, int, struct sigaction *);
 
 int proc_trap(struct proc *, int);
-void proc_stop(struct proc *p);
+void proc_stop_setup(struct proc *p);
+void proc_stop_finish(struct proc *p);
 
 void process_continue(struct process *, int);
 
@@ -1440,10 +1442,11 @@ cursig(struct proc *p, struct sigctx *sctx, int deep)
 				atomic_setbits_int(&pr->ps_flags, PS_STOPPING);
 				SCHED_LOCK();
 				process_stop(pr, P_SUSPSIG, SINGLE_SUSPEND);
-				SCHED_UNLOCK();
 				atomic_setbits_int(&p->p_flag, P_SUSPSIG);
+				proc_stop_setup(p);
+				SCHED_UNLOCK();
 				process_suspend_signal(pr);
-				proc_stop(p);
+				proc_stop_finish(p);
 				mtx_leave(&pr->ps_mtx);
 				break;
 			} else if (prop & SA_IGNORE) {
@@ -1504,13 +1507,14 @@ proc_trap(struct proc *p, int signum)
 	atomic_setbits_int(&pr->ps_flags, PS_STOPPING | PS_TRAPPED);
 	SCHED_LOCK();
 	process_stop(pr, P_SUSPSIG, SINGLE_SUSPEND);
-	SCHED_UNLOCK();
 	atomic_setbits_int(&p->p_flag, P_SUSPSIG);
+	proc_stop_setup(p);
+	SCHED_UNLOCK();
 	pr->ps_xsig = signum;
 	pr->ps_trapped = p;
 
 	process_suspend_signal(pr);
-	proc_stop(p);
+	proc_stop_finish(p);
 	/*
 	 * Clear all flags for proc and process by hand here since ptrace
 	 * just calls setrunnable on the thread without clearing anything.
@@ -1646,31 +1650,45 @@ process_stop(struct process *pr, int flag, int mode)
 }
 
 /*
- * Put the argument process into the stopped state and notify the parent
- * via wakeup.  Signals are handled elsewhere.  The process must not be
- * on the run queue.
+ * Prepare a proc to be stopped.
  */
 void
-proc_stop(struct proc *p)
+proc_stop_setup(struct proc *p)
+{
+	MUTEX_ASSERT_LOCKED(&p->p_p->ps_mtx);
+	/*
+	 * XXX in ptsignal the SCHED_LOCK is already held so we can't
+	 * grab it here until that is fixed.
+	 */
+	/* XXX SCHED_LOCK(); */
+	SCHED_ASSERT_LOCKED();
+
+	TRACEPOINT(sched, stop, NULL);
+
+	atomic_setbits_int(&p->p_flag, P_INSCHED);
+	p->p_stat = SSTOP;
+	/* XXX SCHED_UNLOCK(); */
+}
+
+/*
+ * Finish stopping a process if the condition still holds.
+ */
+void
+proc_stop_finish(struct proc *p)
 {
 	struct process *pr = p->p_p;
 
 	MUTEX_ASSERT_LOCKED(&pr->ps_mtx);
-
-	/*
-	 * XXX to mi_switch we need to release the ps_mtx but then
-	 * another ptsignal can race against this thread and see
-	 * it in the wrong state. So instead set p_stat while still
-	 * holding the ps_mtx.
-	 * We still have an issue when dropping the ps_mtx and grabbing
-	 * the SCHED_LOCK but that can't be fixed.
-	 */
-	SCHED_LOCK();
-	p->p_stat = SSTOP;
-	SCHED_UNLOCK();
 	mtx_leave(&pr->ps_mtx);
 	SCHED_LOCK();
-	mi_switch();
+
+	atomic_clearbits_int(&p->p_flag, P_INSCHED);
+	if (p->p_stat == SSTOP) {
+		p->p_ru.ru_nvcsw++;
+		mi_switch();
+	}
+	KASSERT(p->p_stat == SONPROC);
+
 	SCHED_UNLOCK();
 	mtx_enter(&pr->ps_mtx);
 }
@@ -2242,10 +2260,13 @@ proc_suspend_check_locked(struct proc *p, int deep)
 			/* NOTREACHED */
 		}
 
+		SCHED_LOCK();
+		proc_stop_setup(p);
+		SCHED_UNLOCK();
 		process_suspend_signal(pr);
 
 		/* not exiting and don't need to unwind, so suspend */
-		proc_stop(p);
+		proc_stop_finish(p);
 	} while (pr->ps_single != NULL || ISSET(pr->ps_flags, PS_STOPPING));
 
 	return (0);

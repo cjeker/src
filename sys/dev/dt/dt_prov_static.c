@@ -44,9 +44,11 @@ DT_STATIC_PROBE2(sched, off__cpu, "pid_t", "pid_t");
 DT_STATIC_PROBE0(sched, on__cpu);
 DT_STATIC_PROBE0(sched, remain__cpu);
 DT_STATIC_PROBE0(sched, sleep);
+DT_STATIC_PROBE0(sched, stop);
 DT_STATIC_PROBE3(sched, steal, "pid_t", "pid_t", "int");
 DT_STATIC_PROBE2(sched, unsleep, "pid_t", "pid_t");
 DT_STATIC_PROBE3(sched, wakeup, "pid_t", "pid_t", "int");
+DT_STATIC_PROBE3(sched, unstop, "pid_t", "pid_t", "int");
 
 /*
  * Raw syscalls
@@ -116,9 +118,11 @@ struct dt_probe *const dtps_static[] = {
 	&_DT_STATIC_P(sched, on__cpu),
 	&_DT_STATIC_P(sched, remain__cpu),
 	&_DT_STATIC_P(sched, sleep),
+	&_DT_STATIC_P(sched, stop),
 	&_DT_STATIC_P(sched, steal),
 	&_DT_STATIC_P(sched, unsleep),
 	&_DT_STATIC_P(sched, wakeup),
+	&_DT_STATIC_P(sched, unstop),
 	/* Raw syscalls */
 	&_DT_STATIC_P(raw_syscalls, sys_enter),
 	&_DT_STATIC_P(raw_syscalls, sys_exit),

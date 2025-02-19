@@ -465,9 +465,15 @@ setrunnable(struct proc *p)
 		panic("setrunnable");
 	case SSTOP:
 		prio = p->p_usrpri;
-		/* if not yet asleep, unstop but don't add to runqueue */
-		if (ISSET(p->p_flag, P_WSLEEP)) {
-			p->p_stat = SSLEEP;
+		TRACEPOINT(sched, unstop, p->p_tid + THREAD_PID_OFFSET,
+		    p->p_p->ps_pid, CPU_INFO_UNIT(p->p_cpu));
+
+		/* If not yet stopped or asleep, unstop but don't add to runq */
+		if (ISSET(p->p_flag, P_INSCHED)) {
+			if (p->p_wchan != NULL)
+				p->p_stat = SSLEEP;
+			else
+				p->p_stat = SONPROC;
 			return;
 		}
 		setrunqueue(NULL, p, prio);
@@ -475,12 +481,12 @@ setrunnable(struct proc *p)
 	case SSLEEP:
 		prio = p->p_slppri;
 
-		/* if not yet asleep, don't add to runqueue */
-		if (ISSET(p->p_flag, P_WSLEEP))
-			return;
-		setrunqueue(NULL, p, prio);
 		TRACEPOINT(sched, wakeup, p->p_tid + THREAD_PID_OFFSET,
 		    p->p_p->ps_pid, CPU_INFO_UNIT(p->p_cpu));
+		/* if not yet asleep, don't add to runqueue */
+		if (ISSET(p->p_flag, P_INSCHED))
+			return;
+		setrunqueue(NULL, p, prio);
 		break;
 	}
 	if (p->p_slptime > 1) {

@@ -277,7 +277,7 @@ setrunqueue(struct cpu_info *ci, struct proc *p, uint8_t prio)
 	KASSERT(ci != NULL);
 	SCHED_ASSERT_LOCKED();
 	KASSERT(p->p_wchan == NULL);
-	KASSERT(!ISSET(p->p_flag, P_WSLEEP));
+	KASSERT(!ISSET(p->p_flag, P_INSCHED));
 
 	p->p_cpu = ci;
 	p->p_stat = SRUN;
@@ -368,7 +368,7 @@ again:
 	} 
 
 	KASSERT(p->p_wchan == NULL);
-	KASSERT(!ISSET(p->p_flag, P_WSLEEP));
+	KASSERT(!ISSET(p->p_flag, P_INSCHED));
 	return (p);
 }
 

@@ -351,7 +351,7 @@ sleep_setup(const volatile void *ident, int prio, const char *wmesg)
 	p->p_wmesg = wmesg;
 	p->p_slptime = 0;
 	p->p_slppri = prio & PRIMASK;
-	atomic_setbits_int(&p->p_flag, P_WSLEEP);
+	atomic_setbits_int(&p->p_flag, P_INSCHED);
 	TAILQ_INSERT_TAIL(&slpque[LOOKUP(ident)], p, p_runq);
 	if (prio & PCATCH)
 		atomic_setbits_int(&p->p_flag, P_SINTR);
@@ -397,7 +397,7 @@ sleep_finish(int timo, int do_sleep)
 		unsleep(p);
 	if (p->p_stat == SSTOP)
 		do_sleep = 1;
-	atomic_clearbits_int(&p->p_flag, P_WSLEEP);
+	atomic_clearbits_int(&p->p_flag, P_INSCHED);
 
 	if (do_sleep) {
 		KASSERT(p->p_stat == SSLEEP || p->p_stat == SSTOP);

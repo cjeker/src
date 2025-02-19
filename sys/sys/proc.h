@@ -437,7 +437,7 @@ struct proc {
 #define	P_ALRMPEND	0x00000004	/* SIGVTALRM needs to be posted */
 #define	P_SIGSUSPEND	0x00000008	/* Need to restore before-suspend mask*/
 #define	P_CANTSLEEP	0x00000010	/* insomniac thread */
-#define	P_WSLEEP	0x00000020	/* Working on going to sleep. */
+#define	P_INSCHED	0x00000020	/* Switching scheduler state. */
 #define	P_SINTR		0x00000080	/* Sleep is interruptible. */
 #define	P_SYSTEM	0x00000200	/* No sigs, stats or swapping. */
 #define	P_TIMEOUT	0x00000400	/* Timing out during sleep. */
@@ -451,7 +451,7 @@ struct proc {
 
 #define	P_BITS \
     ("\20" "\01INKTR" "\02PROFPEND" "\03ALRMPEND" "\04SIGSUSPEND" \
-     "\05CANTSLEEP" "\06WSLEEP" "\010SINTR" "\012SYSTEM" "\013TIMEOUT" \
+     "\05CANTSLEEP" "\06INSCHED" "\010SINTR" "\012SYSTEM" "\013TIMEOUT" \
      "\015TRACESINGLE" "\016WEXIT" "\020OWEUPC" "\024SUSPSINGLE" \
      "\033THREAD" "\034SUSPSIG" "\037CPUPEG")
 
