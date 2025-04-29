@@ -108,11 +108,11 @@ imsgbuf_queuelen(struct imsgbuf *imsgbuf)
 	return msgbuf_queuelen(imsgbuf->w);
 }
 
-ssize_t
-imsg_get(struct imsgbuf *imsgbuf, struct imsg *imsg)
+int
+imsgbuf_get(struct imsgbuf *imsgbuf, struct imsg *imsg)
 {
-	struct imsg		 m;
-	struct ibuf		*buf;
+	struct imsg	 m;
+	struct ibuf	*buf;
 
 	if ((buf = msgbuf_get(imsgbuf->w)) == NULL)
 		return (0);
@@ -128,7 +128,48 @@ imsg_get(struct imsgbuf *imsgbuf, struct imsg *imsg)
 	m.hdr.len &= ~IMSG_FD_MARK;
 
 	*imsg = m;
-	return (ibuf_size(buf) + IMSG_HEADER_SIZE);
+	return (1);
+}
+
+ssize_t
+imsg_get(struct imsgbuf *imsgbuf, struct imsg *imsg)
+{
+	int rv;
+
+	if ((rv = imsgbuf_get(imsgbuf, imsg)) != 1)
+		return rv;
+	return (imsg_get_len(imsg) + IMSG_HEADER_SIZE);
+}
+
+void
+imsg_ibufq_push(struct ibufqueue *bufq, struct imsg *imsg)
+{
+	ibuf_rewind(imsg->buf);
+	ibufq_enqueue(bufq, imsg->buf);
+	memset(imsg, 0, sizeof(*imsg));
+}
+
+int
+imsg_ibufq_pop(struct ibufqueue *bufq, struct imsg *imsg)
+{
+	struct imsg	 m;
+	struct ibuf	*buf;
+
+	if ((buf = ibufq_dequeue(bufq)) == NULL)
+		return (0);
+
+	if (ibuf_get(buf, &m.hdr, sizeof(m.hdr)) == -1)
+		return (-1);
+
+	if (ibuf_size(buf))
+		m.data = ibuf_data(buf);
+	else
+		m.data = NULL;
+	m.buf = buf;
+	m.hdr.len &= ~IMSG_FD_MARK;
+
+	*imsg = m;
+	return (1);
 }
 
 int
