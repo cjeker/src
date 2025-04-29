@@ -89,6 +89,7 @@ struct rde_peer {
 	struct prefix_tree		 updates[AID_MAX];
 	struct prefix_tree		 withdraws[AID_MAX];
 	struct filter_head		*out_rules;
+	struct ibufqueue		*ibufq;
 	monotime_t			 staletime[AID_MAX];
 	uint32_t			 remote_bgpid;
 	uint32_t			 path_id_tx;
