@@ -139,6 +139,9 @@ ibuf_add(struct ibuf *buf, const void *data, size_t len)
 {
 	void *b;
 
+	if (len == 0)
+		return (0);
+
 	if ((b = ibuf_reserve(buf, len)) == NULL)
 		return (-1);
 
@@ -235,6 +238,9 @@ ibuf_add_zero(struct ibuf *buf, size_t len)
 {
 	void *b;
 
+	if (len == 0)
+		return (0);
+
 	if ((b = ibuf_reserve(buf, len)) == NULL)
 		return (-1);
 	memset(b, 0, len);
@@ -281,6 +287,8 @@ ibuf_set(struct ibuf *buf, size_t pos, const void *data, size_t len)
 	if ((b = ibuf_seek(buf, pos, len)) == NULL)
 		return (-1);
 
+	if (len == 0)
+		return (0);
 	memcpy(b, data, len);
 	return (0);
 }
