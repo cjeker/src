@@ -204,15 +204,19 @@ imsg_compose(struct imsgbuf *imsgbuf, uint32_t type, uint32_t id, pid_t pid,
 	struct ibuf	*wbuf;
 
 	if ((wbuf = imsg_create(imsgbuf, type, id, pid, datalen)) == NULL)
-		return (-1);
+		goto fail;
 
-	if (imsg_add(wbuf, data, datalen) == -1)
-		return (-1);
+	if (ibuf_add(wbuf, data, datalen) == -1)
+		goto fail;
 
 	ibuf_fd_set(wbuf, fd);
 	imsg_close(imsgbuf, wbuf);
 
 	return (1);
+
+ fail:
+	ibuf_free(wbuf);
+	return (-1);
 }
 
 int
@@ -227,16 +231,20 @@ imsg_composev(struct imsgbuf *imsgbuf, uint32_t type, uint32_t id, pid_t pid,
 		datalen += iov[i].iov_len;
 
 	if ((wbuf = imsg_create(imsgbuf, type, id, pid, datalen)) == NULL)
-		return (-1);
+		goto fail;
 
 	for (i = 0; i < iovcnt; i++)
-		if (imsg_add(wbuf, iov[i].iov_base, iov[i].iov_len) == -1)
-			return (-1);
+		if (ibuf_add(wbuf, iov[i].iov_base, iov[i].iov_len) == -1)
+			goto fail;
 
 	ibuf_fd_set(wbuf, fd);
 	imsg_close(imsgbuf, wbuf);
 
 	return (1);
+
+ fail:
+	ibuf_free(wbuf);
+	return (-1);
 }
 
 /*
@@ -249,7 +257,6 @@ imsg_compose_ibuf(struct imsgbuf *imsgbuf, uint32_t type, uint32_t id,
 {
 	struct ibuf	*hdrbuf = NULL;
 	struct imsg_hdr	 hdr;
-	int save_errno;
 
 	if (ibuf_size(buf) + IMSG_HEADER_SIZE > imsgbuf->maxsize) {
 		errno = ERANGE;
@@ -264,7 +271,7 @@ imsg_compose_ibuf(struct imsgbuf *imsgbuf, uint32_t type, uint32_t id,
 
 	if ((hdrbuf = ibuf_open(IMSG_HEADER_SIZE)) == NULL)
 		goto fail;
-	if (imsg_add(hdrbuf, &hdr, sizeof(hdr)) == -1)
+	if (ibuf_add(hdrbuf, &hdr, sizeof(hdr)) == -1)
 		goto fail;
 
 	ibuf_close(imsgbuf->w, hdrbuf);
@@ -272,10 +279,8 @@ imsg_compose_ibuf(struct imsgbuf *imsgbuf, uint32_t type, uint32_t id,
 	return (1);
 
  fail:
-	save_errno = errno;
 	ibuf_free(buf);
 	ibuf_free(hdrbuf);
-	errno = save_errno;
 	return (-1);
 }
 
@@ -324,13 +329,16 @@ imsg_create(struct imsgbuf *imsgbuf, uint32_t type, uint32_t id, pid_t pid,
 	hdr.peerid = id;
 	if ((hdr.pid = pid) == 0)
 		hdr.pid = imsgbuf->pid;
-	if ((wbuf = ibuf_dynamic(datalen, imsgbuf->maxsize)) == NULL) {
-		return (NULL);
-	}
-	if (imsg_add(wbuf, &hdr, sizeof(hdr)) == -1)
-		return (NULL);
+	if ((wbuf = ibuf_dynamic(datalen, imsgbuf->maxsize)) == NULL)
+		goto fail;
+	if (ibuf_add(wbuf, &hdr, sizeof(hdr)) == -1)
+		goto fail;
 
 	return (wbuf);
+
+ fail:
+	ibuf_free(wbuf);
+	return (NULL);
 }
 
 int
