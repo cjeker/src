@@ -39,6 +39,7 @@ struct ibuf {
 	int			 fd;
 };
 
+struct ibufqueue;
 struct msgbuf;
 
 struct imsgbuf {
@@ -118,12 +119,20 @@ struct msgbuf	*msgbuf_new_reader(size_t,
 		    struct ibuf *(*)(struct ibuf *, void *, int *), void *);
 void		 msgbuf_free(struct msgbuf *);
 void		 msgbuf_clear(struct msgbuf *);
+void		 msgbuf_enqueue(struct msgbuf *, struct ibufqueue *);
 uint32_t	 msgbuf_queuelen(struct msgbuf *);
 int		 ibuf_write(int, struct msgbuf *);
 int		 msgbuf_write(int, struct msgbuf *);
 int		 ibuf_read(int, struct msgbuf *);
 int		 msgbuf_read(int, struct msgbuf *);
 struct ibuf	*msgbuf_get(struct msgbuf *);
+
+struct ibufqueue	*ibufq_new(void);
+void		 ibufq_free(struct ibufqueue *);
+void		 ibufq_enqueue(struct ibufqueue *, struct ibuf *);
+struct ibuf	*ibufq_dequeue(struct ibufqueue *bufq);
+uint32_t	 ibufq_queuelen(struct ibufqueue *);
+void		 ibufq_concat(struct ibufqueue *, struct ibufqueue *);
 
 /* imsg.c */
 int	 imsgbuf_init(struct imsgbuf *, int);
