@@ -579,6 +579,8 @@ ibuf_skip(struct ibuf *buf, size_t len)
 void
 ibuf_free(struct ibuf *buf)
 {
+	int save_errno = errno;
+
 	if (buf == NULL)
 		return;
 	/* if buf lives on the stack abort before causing more harm */
@@ -588,6 +590,7 @@ ibuf_free(struct ibuf *buf)
 		close(buf->fd);
 	freezero(buf->buf, buf->size);
 	free(buf);
+	errno = save_errno;
 }
 
 int
