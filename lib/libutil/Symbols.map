@@ -67,6 +67,12 @@
 		ibuf_skip;
 		ibuf_truncate;
 		ibuf_write;
+		ibufq_concat;
+		ibufq_dequeue;
+		ibufq_enqueue;
+		ibufq_free;
+		ibufq_new;
+		ibufq_queuelen;
 		imsg_add;
 		imsg_close;
 		imsg_compose;
@@ -102,6 +108,7 @@
 		logout;
 		logwtmp;
 		msgbuf_clear;
+		msgbuf_enqueue;
 		msgbuf_free;
 		msgbuf_get;
 		msgbuf_new;
