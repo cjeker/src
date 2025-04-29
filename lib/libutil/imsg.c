@@ -24,6 +24,7 @@
 
 #include <errno.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -152,6 +153,18 @@ imsg_get_data(struct imsg *imsg, void *data, size_t len)
 		return (-1);
 	}
 	return ibuf_get(imsg->buf, data, len);
+}
+
+int
+imsg_get_buf(struct imsg *imsg, void *data, size_t len)
+{
+	return ibuf_get(imsg->buf, data, len);
+}
+
+int
+imsg_get_strbuf(struct imsg *imsg, char *str, size_t len)
+{
+	return ibuf_get_strbuf(imsg->buf, str, len);
 }
 
 int
@@ -347,6 +360,16 @@ void
 imsg_free(struct imsg *imsg)
 {
 	ibuf_free(imsg->buf);
+}
+
+int
+imsg_set_maxsize(struct ibuf *msg, size_t max)
+{
+	if (max > UINT32_MAX - IMSG_HEADER_SIZE) {
+		errno = ERANGE;
+		return (-1);
+	}
+	return ibuf_set_maxsize(msg, max + IMSG_HEADER_SIZE);
 }
 
 static struct ibuf *
