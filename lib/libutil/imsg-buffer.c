@@ -50,7 +50,6 @@ struct msgbuf {
 
 static void	msgbuf_drain(struct msgbuf *, size_t);
 static void	ibufq_init(struct ibufqueue *);
-static void	ibufq_flush(struct ibufqueue *);
 
 #define	IBUF_FD_MARK_ON_STACK	-2
 

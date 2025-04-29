@@ -133,6 +133,7 @@ void		 ibufq_enqueue(struct ibufqueue *, struct ibuf *);
 struct ibuf	*ibufq_dequeue(struct ibufqueue *bufq);
 uint32_t	 ibufq_queuelen(struct ibufqueue *);
 void		 ibufq_concat(struct ibufqueue *, struct ibufqueue *);
+void		 ibufq_flush(struct ibufqueue *);
 
 /* imsg.c */
 int	 imsgbuf_init(struct imsgbuf *, int);

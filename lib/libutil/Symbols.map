@@ -70,6 +70,7 @@
 		ibufq_concat;
 		ibufq_dequeue;
 		ibufq_enqueue;
+		ibufq_flush;
 		ibufq_free;
 		ibufq_new;
 		ibufq_queuelen;
