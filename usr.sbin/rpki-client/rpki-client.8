@@ -27,6 +27,7 @@
 .Op Fl d Ar cachedir
 .Op Fl e Ar rsync_prog
 .Op Fl H Ar fqdn
+.Op Fl p Ar threads
 .Op Fl S Ar skiplist
 .Op Fl s Ar timeout
 .Op Fl t Ar tal
@@ -177,6 +178,11 @@ Specify the time for the evaluation in
 .Ar posix-seconds
 seconds from the unix epoch.
 This overrides the default of using the current system time.
+.It Fl p Ar threads
+Validate using the specified number of threads.
+The default is one.
+Has no effect in combination with
+.Fl f .
 .It Fl R
 Disable RRDP, synchronize only via RSYNC.
 .It Fl S Ar skiplist

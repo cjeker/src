@@ -97,6 +97,21 @@ io_close_buffer(struct msgbuf *msgbuf, struct ibuf *b)
 }
 
 /*
+ * Finish and enqueue a io buffer.
+ */
+void
+io_close_queue(struct ibufqueue *bufq, struct ibuf *b)
+{
+	size_t len;
+
+	len = ibuf_size(b);
+	if (ibuf_fd_avail(b))
+		len |= IO_FD_MARK;
+	ibuf_set(b, 0, &len, sizeof(len));
+	ibufq_push(bufq, b);
+}
+
+/*
  * Read of an ibuf and extract sz byte from there.
  * Does nothing if "sz" is zero.
  * Return 1 on success or 0 if there was not enough data.
