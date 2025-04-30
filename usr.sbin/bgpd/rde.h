@@ -711,8 +711,9 @@ void		 up_generate_addpath_all(struct rde_peer *, struct rib_entry *,
 		    struct prefix *, struct prefix *);
 void		 up_generate_default(struct rde_peer *, uint8_t);
 int		 up_is_eor(struct rde_peer *, uint8_t);
-struct ibuf	*up_dump_withdraws(struct rde_peer *, uint8_t);
-struct ibuf	*up_dump_update(struct rde_peer *, uint8_t);
+void		 up_dump_withdraws(struct imsgbuf *, struct rde_peer *,
+		    uint8_t);
+void		 up_dump_update(struct imsgbuf *, struct rde_peer *, uint8_t);
 
 /* rde_aspa.c */
 void		 aspa_validation(struct rde_aspa *, struct aspath *,
