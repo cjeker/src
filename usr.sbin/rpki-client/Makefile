@@ -12,6 +12,9 @@ MAN=	rpki-client.8
 LDADD+= -lexpat -ltls -lssl -lcrypto -lutil -lz
 DPADD+= ${LIBEXPAT} ${LIBTLS} ${LIBSSL} ${LIBCRYPTO} ${LIBUTIL} ${LIBZ}
 
+LDADD+= -lpthread
+DPADD+= ${LIBPTHREAD}
+
 CFLAGS+= -Wall -I${.CURDIR}
 CFLAGS+= -Wstrict-prototypes -Wmissing-prototypes
 CFLAGS+= -Wmissing-declarations
