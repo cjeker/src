@@ -24,6 +24,8 @@
 #include <sys/pool.h>
 #include <sys/time.h>
 #include <sys/rwlock.h>
+#include <sys/percpu.h> /* CACHELINESIZE */
+#include <sys/kernel.h> /* tick_nsec */
 #include <sys/futex.h>
 
 #ifdef KTRACE
@@ -36,41 +38,65 @@
  * Kernel representation of a futex.
  */
 struct futex {
-	LIST_ENTRY(futex)	 ft_list;	/* list of all futexes */
-	TAILQ_HEAD(, proc)	 ft_threads;	/* sleeping queue */
+	TAILQ_ENTRY(futex)	 ft_entry;	/* list of all futexes */
+	struct process		*ft_ps;
 	struct uvm_object	*ft_obj;	/* UVM object */
 	struct vm_amap		*ft_amap;	/* UVM amap */
-	voff_t			 ft_off;	/* UVM offset */
-	unsigned int		 ft_refcnt;	/* # of references */
+	volatile voff_t		 ft_off;	/* UVM offset */
+
+	struct proc * volatile	 ft_proc;
 };
 
+static int
+futex_is_eq(const struct futex *a, const struct futex *b)
+{
+	return (a->ft_off == b->ft_off &&
+	    a->ft_ps == b->ft_ps &&
+	    a->ft_obj == b->ft_obj &&
+	    a->ft_amap == b->ft_amap);
+}
+
+TAILQ_HEAD(futexen, futex);
+
+struct futex_bucket {
+	struct futexen		fb_list;
+	struct rwlock		fb_lock;
+	uint32_t		fb_id;		/* for lock ordering */
+} __aligned(CACHELINESIZE);
+
 /* Syscall helpers. */
-int	 futex_wait(uint32_t *, uint32_t, const struct timespec *, int);
-int	 futex_wake(uint32_t *, uint32_t, int);
-int	 futex_requeue(uint32_t *, uint32_t, uint32_t *, uint32_t, int);
+static int	futex_wait(struct proc *, uint32_t *, uint32_t,
+		    const struct timespec *, int);
+static int	futex_wake(struct proc *, uint32_t *, uint32_t, int,
+		    register_t *);
+static int	futex_requeue(struct proc *, uint32_t *, uint32_t,
+		    uint32_t *, uint32_t, int, register_t *);
 
-/* Flags for futex_get(). */
-#define FT_CREATE	0x1	/* Create a futex if it doesn't exist. */
-#define FT_PRIVATE	0x2	/* Futex is process-private. */
+/* Flags for futex_get(). kernel private flags sit in FUTEX_OP_MASK space */
+#define FT_PRIVATE	FUTEX_PRIVATE_FLAG	/* Futex is process-private. */
 
-struct futex *futex_get(uint32_t *, int);
-void	 futex_put(struct futex *);
+#define FUTEX_BUCKET_BITS	6
+#define FUTEX_BUCKET_SIZE	(1U << FUTEX_BUCKET_BITS)
+#define FUTEX_BUCKET_MASK	(FUTEX_BUCKET_SIZE - 1)
 
-/*
- * The global futex lock serializes futex(2) calls so that no wakeup
- * event is lost, and protects all futex lists and futex states.
- */
-struct rwlock			ftlock = RWLOCK_INITIALIZER("futex");
-static struct futex_list	ftlist_shared =
-				    LIST_HEAD_INITIALIZER(ftlist_shared);
-struct pool			ftpool;
-
+static struct futex_bucket futex_hash[FUTEX_BUCKET_SIZE];
 
 void
 futex_init(void)
 {
-	pool_init(&ftpool, sizeof(struct futex), 0, IPL_NONE,
-	    PR_WAITOK | PR_RWLOCK, "futexpl", NULL);
+	struct futex_bucket *fb;
+	unsigned int i;
+
+	for (i = 0; i < nitems(futex_hash); i++) {
+		fb = &futex_hash[i];
+
+		TAILQ_INIT(&fb->fb_list);
+		rw_init(&fb->fb_lock, "futexlk");
+
+		fb->fb_id = arc4random();
+		fb->fb_id &= ~FUTEX_BUCKET_MASK;
+		fb->fb_id |= i;
+	}
 }
 
 int
@@ -88,65 +114,51 @@ sys_futex(struct proc *p, void *v, register_t *retval)
 	uint32_t val = SCARG(uap, val);
 	const struct timespec *timeout = SCARG(uap, timeout);
 	void *g = SCARG(uap, g);
-	int flags = 0;
+	int flags = op & FUTEX_FLAG_MASK;
 	int error = 0;
 
-	if (op & FUTEX_PRIVATE_FLAG)
-		flags |= FT_PRIVATE;
-
-	rw_enter_write(&ftlock);
-	switch (op) {
+	switch (op & FUTEX_OP_MASK) {
 	case FUTEX_WAIT:
-	case FUTEX_WAIT_PRIVATE:
-		error = futex_wait(uaddr, val, timeout, flags);
+		error = futex_wait(p, uaddr, val, timeout, flags);
 		break;
 	case FUTEX_WAKE:
-	case FUTEX_WAKE_PRIVATE:
-		*retval = futex_wake(uaddr, val, flags);
+		error = futex_wake(p, uaddr, val, flags, retval);
 		break;
 	case FUTEX_REQUEUE:
-	case FUTEX_REQUEUE_PRIVATE:
-		*retval = futex_requeue(uaddr, val, g, (u_long)timeout, flags);
+		error = futex_requeue(p, uaddr, val, g,
+		    (u_long)timeout, flags, retval);
 		break;
 	default:
 		error = ENOSYS;
 		break;
 	}
-	rw_exit_write(&ftlock);
 
 	return error;
 }
 
-/*
- * Return an existing futex matching userspace address ``uaddr''.
- *
- * If such futex does not exist and FT_CREATE is given, create it.
- */
-struct futex *
-futex_get(uint32_t *uaddr, int flags)
+static void
+futex_addrs(struct proc *p, struct futex *f, uint32_t *uaddr, int flags)
 {
-	struct proc *p = curproc;
 	vm_map_t map = &p->p_vmspace->vm_map;
 	vm_map_entry_t entry;
 	struct uvm_object *obj = NULL;
 	struct vm_amap *amap = NULL;
 	voff_t off = (vaddr_t)uaddr;
-	struct futex *f;
-	struct futex_list *ftlist = &p->p_p->ps_ftlist;
+	struct process *ps;
 
-	rw_assert_wrlock(&ftlock);
+	if (ISSET(flags, FT_PRIVATE))
+		ps = p->p_p;
+	else {
+		ps = NULL;
 
-	if (!(flags & FT_PRIVATE)) {
 		vm_map_lock_read(map);
 		if (uvm_map_lookup_entry(map, (vaddr_t)uaddr, &entry) &&
 		    entry->inheritance == MAP_INHERIT_SHARE) {
 			if (UVM_ET_ISOBJ(entry)) {
-				ftlist = &ftlist_shared;
 				obj = entry->object.uvm_obj;
 				off = entry->offset +
 				    ((vaddr_t)uaddr - entry->start);
 			} else if (entry->aref.ar_amap) {
-				ftlist = &ftlist_shared;
 				amap = entry->aref.ar_amap;
 				off = ptoa(entry->aref.ar_pageoff) +
 				    ((vaddr_t)uaddr - entry->start);
@@ -155,47 +167,47 @@ futex_get(uint32_t *uaddr, int flags)
 		vm_map_unlock_read(map);
 	}
 
-	LIST_FOREACH(f, ftlist, ft_list) {
-		if (f->ft_obj == obj && f->ft_amap == amap &&
-		    f->ft_off == off) {
-			f->ft_refcnt++;
-			break;
-		}
-	}
-
-	if ((f == NULL) && (flags & FT_CREATE)) {
-		/*
-		 * We rely on the rwlock to ensure that no other thread
-		 * create the same futex.
-		 */
-		f = pool_get(&ftpool, PR_WAITOK);
-		TAILQ_INIT(&f->ft_threads);
-		f->ft_obj = obj;
-		f->ft_amap = amap;
-		f->ft_off = off;
-		f->ft_refcnt = 1;
-		LIST_INSERT_HEAD(ftlist, f, ft_list);
-	}
-
-	return f;
+	f->ft_ps = ps;
+	f->ft_obj = obj;
+	f->ft_amap = amap;
+	f->ft_off = off;
 }
 
-/*
- * Release a given futex.
- */
-void
-futex_put(struct futex *f)
+static inline struct futex_bucket *
+futex_get_bucket(struct futex *f)
 {
-	rw_assert_wrlock(&ftlock);
+	uint32_t key = f->ft_off >> 3; /* watevs */
+	key ^= key >> FUTEX_BUCKET_BITS;
 
-	KASSERT(f->ft_refcnt > 0);
+	return (&futex_hash[key & FUTEX_BUCKET_MASK]);
+}
 
-	--f->ft_refcnt;
-	if (f->ft_refcnt == 0) {
-		KASSERT(TAILQ_EMPTY(&f->ft_threads));
-		LIST_REMOVE(f, ft_list);
-		pool_put(&ftpool, f);
+static int
+futex_remove(struct futex_bucket *ofb, struct futex *f)
+{
+	struct futex_bucket *fb;
+	int rv;
+
+	/*
+	 * REQUEUE can move a futex between buckets, so follow it if needed.
+	 */
+
+	for (;;) {
+		rw_enter_write(&ofb->fb_lock);
+		fb = futex_get_bucket(f);
+		if (ofb == fb)
+			break;
+
+		rw_exit_write(&ofb->fb_lock);
+		ofb = fb;
 	}
+
+	rv = f->ft_proc != NULL;
+	if (rv)
+		TAILQ_REMOVE(&fb->fb_list, f, ft_entry);
+	rw_exit_write(&fb->fb_lock);
+
+	return (rv);
 }
 
 /*
@@ -203,34 +215,19 @@ futex_put(struct futex *f)
  * ``uaddr''.  Let it sleep for the specified ``timeout'' time, or
  * indefinitely if the argument is NULL.
  */
-int
-futex_wait(uint32_t *uaddr, uint32_t val, const struct timespec *timeout,
-    int flags)
+static int
+futex_wait(struct proc *p, uint32_t *uaddr, uint32_t val,
+    const struct timespec *timeout, int flags)
 {
-	struct proc *p = curproc;
-	struct futex *f;
-	uint64_t nsecs = INFSLP;
+	struct futex f;
+	struct futex_bucket *fb;
+	uint64_t to_ticks = 0;
 	uint32_t cval;
 	int error;
 
-	/*
-	 * After reading the value a race is still possible but
-	 * we deal with it by serializing all futex syscalls.
-	 */
-	rw_assert_wrlock(&ftlock);
-
-	/*
-	 * Read user space futex value
-	 */
-	if ((error = copyin32(uaddr, &cval)))
-		return error;
-
-	/* If the value changed, stop here. */
-	if (cval != val)
-		return EAGAIN;
-
 	if (timeout != NULL) {
 		struct timespec ts;
+		uint64_t nsecs;
 
 		if ((error = copyin(timeout, &ts, sizeof(ts))))
 			return error;
@@ -240,32 +237,77 @@ futex_wait(uint32_t *uaddr, uint32_t val, const struct timespec *timeout,
 #endif
 		if (ts.tv_sec < 0 || !timespecisvalid(&ts))
 			return EINVAL;
+
 		nsecs = MAX(1, MIN(TIMESPEC_TO_NSEC(&ts), MAXTSLP));
+		to_ticks = (nsecs + tick_nsec - 1) / (tick_nsec + 1) + 1;
+		if (to_ticks > INT_MAX)
+			to_ticks = INT_MAX;
 	}
 
-	f = futex_get(uaddr, flags | FT_CREATE);
-	TAILQ_INSERT_TAIL(&f->ft_threads, p, p_fut_link);
-	p->p_futex = f;
+	futex_addrs(p, &f, uaddr, flags);
+	fb = futex_get_bucket(&f);
 
-	error = rwsleep_nsec(p, &ftlock, PWAIT|PCATCH, "fsleep", nsecs);
-	if (error == ERESTART)
-		error = ECANCELED;
-	else if (error == EWOULDBLOCK) {
-		/* A race occurred between a wakeup and a timeout. */
-		if (p->p_futex == NULL)
-			error = 0;
-		else
-			error = ETIMEDOUT;
+	f.ft_proc = p;
+	rw_enter_write(&fb->fb_lock);
+	TAILQ_INSERT_TAIL(&fb->fb_list, &f, ft_entry);
+	rw_exit_write(&fb->fb_lock);
+
+	/*
+	 * Read user space futex value
+	 */
+	if ((error = copyin32(uaddr, &cval)) != 0)
+		goto exit;
+
+	/* If the value changed, stop here. */
+	if (cval != val) {
+		error = EAGAIN;
+		goto exit;
 	}
 
+	sleep_setup(&f, PWAIT|PCATCH, "fsleep");
+	error = sleep_finish(to_ticks, f.ft_proc != NULL);
 	/* Remove ourself if we haven't been awaken. */
-	if ((f = p->p_futex) != NULL) {
-		p->p_futex = NULL;
-		TAILQ_REMOVE(&f->ft_threads, p, p_fut_link);
-		futex_put(f);
+	if (error != 0 || f.ft_proc != NULL) {
+		if (futex_remove(fb, &f) == 0)
+			error = 0;
+
+		switch (error) {
+		case ERESTART:
+			error = ECANCELED;
+			break;
+		case EWOULDBLOCK:
+			error = ETIMEDOUT;
+			break;
+		}
 	}
 
 	return error;
+exit:
+	if (f.ft_proc != NULL)
+		futex_remove(fb, &f);
+	return error;
+}
+
+static void
+futexen_wakeup(struct futexen *fl)
+{
+	struct futex *f, *nf;
+	struct proc *p;
+
+	/*
+	 * take care to avoid referencing f after we set ft_proc
+	 * to NULL (and wake the associated thread up). f is on the
+	 * stack of the thread we're trying let out of the kernel,
+	 * so it can go away.
+	 */
+
+	SCHED_LOCK();
+	TAILQ_FOREACH_SAFE(f, fl, ft_entry, nf) {
+		p = f->ft_proc;
+		f->ft_proc = NULL;
+		wakeup_proc(p);
+	}
+	SCHED_UNLOCK();
 }
 
 /*
@@ -273,46 +315,135 @@ futex_wait(uint32_t *uaddr, uint32_t val, const struct timespec *timeout,
  * ``uaddr'' and requeue at most ``m'' sibling threads on a futex at
  * address ``uaddr2''.
  */
-int
-futex_requeue(uint32_t *uaddr, uint32_t n, uint32_t *uaddr2, uint32_t m,
-    int flags)
+static int
+futex_requeue(struct proc *p, uint32_t *uaddr, uint32_t n,
+    uint32_t *uaddr2, uint32_t m, int flags, register_t *retval)
 {
-	struct futex *f, *g;
-	struct proc *p;
+	struct futexen fl = TAILQ_HEAD_INITIALIZER(fl);
+	struct futex okey, nkey;
+	struct futex *f, *nf, *mf = NULL;
+	struct futex_bucket *ofb, *nfb;
 	uint32_t count = 0;
 
-	rw_assert_wrlock(&ftlock);
+	if (m == 0)
+		return futex_wake(p, uaddr, n, flags, retval);
 
-	f = futex_get(uaddr, flags);
-	if (f == NULL)
-		return 0;
+	futex_addrs(p, &okey, uaddr, flags);
+	ofb = futex_get_bucket(&okey);
+	futex_addrs(p, &nkey, uaddr2, flags);
+	nfb = futex_get_bucket(&nkey);
 
-	while ((p = TAILQ_FIRST(&f->ft_threads)) != NULL && (count < (n + m))) {
-		p->p_futex = NULL;
-		TAILQ_REMOVE(&f->ft_threads, p, p_fut_link);
-		futex_put(f);
+	if (ofb->fb_id < nfb->fb_id) {
+		rw_enter_write(&ofb->fb_lock);
+		rw_enter_write(&nfb->fb_lock);
+	} else if (ofb->fb_id > nfb->fb_id) {
+		rw_enter_write(&nfb->fb_lock);
+		rw_enter_write(&ofb->fb_lock);
+	} else
+		rw_enter_write(&ofb->fb_lock);
 
-		if (count < n) {
-			wakeup_one(p);
-		} else if (uaddr2 != NULL) {
-			g = futex_get(uaddr2, FT_CREATE);
-			TAILQ_INSERT_TAIL(&g->ft_threads, p, p_fut_link);
-			p->p_futex = g;
+	TAILQ_FOREACH_SAFE(f, &ofb->fb_list, ft_entry, nf) {
+		/* __builtin_prefetch(nf, 1); */
+		KASSERT(f->ft_proc != NULL);
+
+		if (!futex_is_eq(f, &okey))
+			continue;
+
+		TAILQ_REMOVE(&ofb->fb_list, f, ft_entry);
+		TAILQ_INSERT_TAIL(&fl, f, ft_entry);
+
+		if (++count == n) {
+			mf = nf;
+			break;
 		}
-		count++;
 	}
 
-	futex_put(f);
+	if (!TAILQ_EMPTY(&fl))
+		futexen_wakeup(&fl);
 
-	return count;
+	/* update matching futexes */
+	if (mf != NULL) {
+		/*
+		 * only iterate from the current entry to the tail
+		 * of the list as it is now in case we're requeueing
+		 * on the end of the same list.
+		 */
+		nf = TAILQ_LAST(&ofb->fb_list, futexen);
+		do {
+			f = mf;
+			mf = TAILQ_NEXT(f, ft_entry);
+			/* __builtin_prefetch(mf, 1); */
+
+			KASSERT(f->ft_proc != NULL);
+
+			if (!futex_is_eq(f, &okey))
+				continue;
+
+			TAILQ_REMOVE(&ofb->fb_list, f, ft_entry);
+			/* it should only be ft_off that changes, but eh */
+			f->ft_ps = nkey.ft_ps;
+			f->ft_obj = nkey.ft_obj;
+			f->ft_amap = nkey.ft_amap;
+			f->ft_off = nkey.ft_off;
+
+			TAILQ_INSERT_TAIL(&nfb->fb_list, f, ft_entry);
+
+			if (--m == 0)
+				break;
+		} while (f != nf);
+	}
+
+	if (ofb->fb_id != nfb->fb_id)
+		rw_exit_write(&nfb->fb_lock);
+	rw_exit_write(&ofb->fb_lock);
+
+	*retval = count;
+	return 0;
 }
 
 /*
  * Wakeup at most ``n'' sibling threads sleeping on a futex at address
  * ``uaddr''.
  */
-int
-futex_wake(uint32_t *uaddr, uint32_t n, int flags)
+static int
+futex_wake(struct proc *p, uint32_t *uaddr, uint32_t n, int flags,
+    register_t *retval)
 {
-	return futex_requeue(uaddr, n, NULL, 0, flags);
+	struct futexen fl = TAILQ_HEAD_INITIALIZER(fl);
+	struct futex key;
+	struct futex *f, *nf;
+	struct futex_bucket *fb;
+	int count = 0;
+
+	if (n == 0) {
+		*retval = 0;
+		return 0;
+	}
+
+	futex_addrs(p, &key, uaddr, flags);
+	fb = futex_get_bucket(&key);
+
+	rw_enter_write(&fb->fb_lock);
+
+	TAILQ_FOREACH_SAFE(f, &fb->fb_list, ft_entry, nf) {
+		/* __builtin_prefetch(nf, 1); */
+		KASSERT(f->ft_proc != NULL);
+
+		if (!futex_is_eq(f, &key))
+			continue;
+
+		TAILQ_REMOVE(&fb->fb_list, f, ft_entry);
+		TAILQ_INSERT_TAIL(&fl, f, ft_entry);
+
+		if (++count == n)
+			break;
+	}
+
+	if (!TAILQ_EMPTY(&fl))
+		futexen_wakeup(&fl);
+
+	rw_exit_write(&fb->fb_lock);
+
+	*retval = count;
+	return 0;
 }
