@@ -169,10 +169,10 @@ sched_idle(void *v)
 	mi_switch();
 
 	while (1) {
+		SCHED_LOCK();
 		while (spc->spc_whichqs != 0) {
 			struct proc *dead;
 
-			SCHED_LOCK();
 			p->p_stat = SSLEEP;
 			mi_switch();
 
@@ -180,9 +180,17 @@ sched_idle(void *v)
 				TAILQ_REMOVE(&spc->spc_deadproc, dead, p_runq);
 				exit2(dead);
 			}
-		}
 
-		splassert(IPL_NONE);
+			SCHED_LOCK();
+			if (cpu_is_idle(ci) &&
+			    (spc->spc_schedflags & SPCF_SHOULDHALT) == 0 &&
+			    (next = sched_steal_proc(ci)) != NULL)
+				setrunqueue(ci, next, next->p_usrpri);
+		} while (!cpu_is_idle(ci));
+		SCHED_UNLOCK();
+
+		KASSERT(ci == curcpu());
+		KASSERT(curproc == spc->spc_idleproc);
 
 		smr_idle();
 
@@ -358,7 +366,7 @@ again:
 		sched_noidle++;
 		if (p->p_stat != SRUN)
 			panic("thread %d not in SRUN: %d", p->p_tid, p->p_stat);
-	} else if ((p = sched_steal_proc(curcpu())) == NULL) {
+	} else {
 		p = spc->spc_idleproc;
 		if (p == NULL)
 			panic("no idleproc set on CPU%d",
