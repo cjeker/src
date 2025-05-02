@@ -144,25 +144,16 @@ sched_idle(void *v)
 
 	/*
 	 * First time we enter here, we're not supposed to idle,
-	 * just go away for a while.
+	 * finish the setup of the idle proc and go away.
 	 */
-	SCHED_LOCK();
-	cpuset_add(&sched_idle_cpus, ci);
-	p->p_stat = SSLEEP;
 	p->p_cpu = ci;
 	atomic_setbits_int(&p->p_flag, P_CPUPEG);
-	mi_switch();
-	cpuset_del(&sched_idle_cpus, ci);
-	SCHED_UNLOCK();
-
-	KASSERT(ci == curcpu());
-	KASSERT(curproc == spc->spc_idleproc);
 
 	while (1) {
-		while (!cpu_is_idle(curcpu())) {
-			struct proc *dead;
+		SCHED_LOCK();
+		do {
+			struct proc *dead, *next;
 
-			SCHED_LOCK();
 			p->p_stat = SSLEEP;
 			mi_switch();
 			SCHED_UNLOCK();
@@ -171,9 +162,17 @@ sched_idle(void *v)
 				LIST_REMOVE(dead, p_hash);
 				exit2(dead);
 			}
-		}
 
-		splassert(IPL_NONE);
+			SCHED_LOCK();
+			if (cpu_is_idle(ci) &&
+			    (spc->spc_schedflags & SPCF_SHOULDHALT) == 0 &&
+			    (next = sched_steal_proc(ci)) != NULL)
+				setrunqueue(ci, next, next->p_usrpri);
+		} while (!cpu_is_idle(ci));
+		SCHED_UNLOCK();
+
+		KASSERT(ci == curcpu());
+		KASSERT(curproc == spc->spc_idleproc);
 
 		smr_idle();
 
@@ -359,7 +358,7 @@ again:
 		sched_noidle++;
 		if (p->p_stat != SRUN)
 			panic("thread %d not in SRUN: %d", p->p_tid, p->p_stat);
-	} else if ((p = sched_steal_proc(curcpu())) == NULL) {
+	} else {
 		p = spc->spc_idleproc;
 		if (p == NULL)
 			panic("no idleproc set on CPU%d",
