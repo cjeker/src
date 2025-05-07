@@ -1098,11 +1098,9 @@ agintc_run_handler(struct intrhand *ih, void *frame, int s)
 	else
 		arg = frame;
 
-	LLTRACE(lltrace_irq, ih->ih_ipl == IPL_IPI ? LLTRACE_IRQ_IPI : 0,
-	    ih->ih_irq);
+	LLTRACE(lltrace_fn_enter, ih->ih_func);
 	handled = ih->ih_func(arg);
-	LLTRACE(lltrace_irqret, ih->ih_ipl == IPL_IPI ? LLTRACE_IRQ_IPI : 0,
-	    ih->ih_irq);
+	LLTRACE(lltrace_fn_leave, ih->ih_func);
 	if (handled)
 		ih->ih_count.ec_count++;
 
