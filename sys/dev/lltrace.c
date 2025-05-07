@@ -86,7 +86,7 @@ lltrace_ts_long(void)
 static inline uint64_t
 lltrace_ts(void)
 {
-	uint64_t ts = ltrace_ts_long();
+	uint64_t ts = lltrace_ts_long();
 
 	return (ts & (LLTRACE_TS_MASK << LLTRACE_TS_SHIFT));
 }
