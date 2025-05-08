@@ -113,6 +113,7 @@ struct schedstate_percpu {
 	struct timespec spc_runtime;	/* time curproc started running */
 	volatile int spc_schedflags;	/* flags; see below */
 	u_int spc_schedticks;		/* ticks for schedclock() */
+	struct mutex *spc_mtx;		/* [o] mutex held in mi_switch */
 	u_int64_t spc_cp_time[CPUSTATES]; /* CPU state statistics */
 
 	struct clockintr spc_itimer;	/* [o] itimer_update handle */
@@ -161,7 +162,7 @@ void sched_init_cpu(struct cpu_info *);
 void sched_idle(void *);
 void sched_exit(struct proc *);
 void sched_toidle(void);
-void mi_switch(void);
+void mi_switch(struct mutex *);
 void cpu_switchto(struct proc *, struct proc *);
 struct proc *sched_chooseproc(void);
 struct cpu_info *sched_choosecpu(struct proc *);
