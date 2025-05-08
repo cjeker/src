@@ -1356,8 +1356,6 @@ child_return(void *arg)
 	}
 #endif
 
-	KERNEL_UNLOCK();
-
 	mi_child_return(p);
 }
 
