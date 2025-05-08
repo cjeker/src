@@ -603,6 +603,8 @@ start_init(void *arg)
 	 * Now in process 1.
 	 */
 
+	KERNEL_LOCK();
+
 	/*
 	 * Wait for main() to tell us that it's safe to exec.
 	 */
