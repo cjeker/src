@@ -138,8 +138,6 @@ sched_idle(void *v)
 	struct proc *p = curproc;
 	struct cpu_info *ci = v;
 
-	KERNEL_UNLOCK();
-
 	spc = &ci->ci_schedstate;
 
 	/*
