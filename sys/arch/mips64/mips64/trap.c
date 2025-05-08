@@ -786,8 +786,6 @@ child_return(void *arg)
 	trapframe->v0 = 0;
 	trapframe->a3 = 0;
 
-	KERNEL_UNLOCK();
-
 	mi_child_return(p);
 }
 

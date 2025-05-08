@@ -85,7 +85,5 @@ child_return(void *arg)
 	frame->tf_a[0] = 0;
 	frame->tf_t[0] = 0;			/* no error */
 
-	KERNEL_UNLOCK();
-
 	mi_child_return(p);
 }
