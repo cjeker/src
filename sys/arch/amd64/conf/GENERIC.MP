@@ -3,7 +3,7 @@
 include "arch/amd64/conf/GENERIC"
 
 option	MULTIPROCESSOR
-#option	MP_LOCKDEBUG
-#option	WITNESS
+option	MP_LOCKDEBUG
+option	WITNESS
 
 cpu*		at mainbus?

@@ -599,7 +599,5 @@ child_return(void *arg)
 	tf->tf_eax = 0;
 	tf->tf_eflags &= ~PSL_C;
 
-	KERNEL_UNLOCK();
-
 	mi_child_return(p);
 }

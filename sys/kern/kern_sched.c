@@ -144,8 +144,6 @@ sched_idle(void *v)
 	struct proc *p = curproc;
 	struct cpu_info *ci = v;
 
-	KERNEL_UNLOCK();
-
 	/*
 	 * The idle thread is setup in fork1(). When the CPU hatches we
 	 * enter here for the first time. The CPU is now ready to take
