@@ -88,7 +88,5 @@ child_return(void *arg)
 	frame->tf_x[0] = 0;
 	frame->tf_spsr &= ~PSR_C;	/* carry bit */
 
-	KERNEL_UNLOCK();
-
 	mi_child_return(p);
 }

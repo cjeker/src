@@ -721,6 +721,4 @@ proc_trampoline_mi(void)
 	}
 
 	nanouptime(&spc->spc_runtime);
-	/* Acquire the kernel_lock since child_return() expects that */
-	KERNEL_LOCK();
 }
