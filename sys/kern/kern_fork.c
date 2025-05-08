@@ -705,12 +705,11 @@ proc_trampoline_mi(void)
 	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
 	struct proc *p = curproc;
 
-	SCHED_ASSERT_LOCKED();
 	clear_resched(curcpu());
-	mtx_leave(&sched_lock);
-	spl0();
+	MUTEX_OLDIPL(spc->spc_mtx) = IPL_NONE;
+	mtx_leave(spc->spc_mtx);
+	spc->spc_mtx = NULL;
 
-	SCHED_ASSERT_UNLOCKED();
 	KERNEL_ASSERT_UNLOCKED();
 	assertwaitok();
 	smr_idle();
@@ -726,5 +725,6 @@ proc_trampoline_mi(void)
 	}
 
 	nanouptime(&spc->spc_runtime);
+	/* Acquire the kernel_lock since child_return() expects that */
 	KERNEL_LOCK();
 }
