@@ -778,8 +778,6 @@ child_return(void *arg)
 	tf->tf_rax = 0;
 	tf->tf_rflags &= ~PSL_C;
 
-	KERNEL_UNLOCK();
-
 	mi_child_return(p);
 }
 
