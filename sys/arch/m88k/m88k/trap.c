@@ -1357,8 +1357,6 @@ child_return(arg)
 	}
 #endif
 
-	KERNEL_UNLOCK();
-
 	mi_child_return(p);
 }
 
