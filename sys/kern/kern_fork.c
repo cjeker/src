@@ -720,5 +720,4 @@ proc_trampoline_mi(void)
 	}
 
 	nanouptime(&spc->spc_runtime);
-	KERNEL_LOCK();
 }
