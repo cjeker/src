@@ -155,7 +155,7 @@ sched_idle(void *v)
 			struct proc *dead, *next;
 
 			p->p_stat = SSLEEP;
-			mi_switch();
+			mi_switch(&sched_lock);
 			SCHED_UNLOCK();
 
 			while ((dead = LIST_FIRST(&spc->spc_deadproc))) {
@@ -245,6 +245,8 @@ sched_toidle(void)
 	atomic_clearbits_int(&spc->spc_schedflags, SPCF_SWITCHCLEAR);
 
 	SCHED_LOCK();
+	spc->spc_mtx = &sched_lock;
+
 	idle = spc->spc_idleproc;
 	idle->p_stat = SRUN;
 
@@ -641,7 +643,7 @@ sched_peg_curproc(struct cpu_info *ci)
 	atomic_setbits_int(&p->p_flag, P_CPUPEG);
 	setrunqueue(ci, p, p->p_usrpri);
 	p->p_ru.ru_nvcsw++;
-	mi_switch();
+	mi_switch(&sched_lock);
 	SCHED_UNLOCK();
 }
 
