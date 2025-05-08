@@ -644,8 +644,6 @@ child_return(void *arg)
 	tf->tf_ret0 = 0;
 	tf->tf_t1 = 0;		/* errno */
 
-	KERNEL_UNLOCK();
-
 	ast(p);
 
 	mi_child_return(p);
