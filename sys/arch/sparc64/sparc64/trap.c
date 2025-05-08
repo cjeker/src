@@ -1109,8 +1109,6 @@ child_return(void *arg)
 	 */
 	tf->tf_out[0] = 0;
 
-	KERNEL_UNLOCK();
-
 	mi_child_return(p);
 }
 

@@ -533,8 +533,6 @@ child_return(void *arg)
 	/* Disable FPU, VECT, as we can't be fpuproc */
 	tf->srr1 &= ~(PSL_FP|PSL_VEC);
 
-	KERNEL_UNLOCK();
-
 	mi_child_return(p);
 }
 

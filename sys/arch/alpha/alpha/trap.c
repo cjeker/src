@@ -578,8 +578,6 @@ child_return(void *arg)
 	framep->tf_regs[FRAME_V0] = 0;
 	framep->tf_regs[FRAME_A3] = 0;
 
-	KERNEL_UNLOCK();
-
 	/* Do any deferred user pmap operations. */
 	PMAP_USERRET(vm_map_pmap(&p->p_vmspace->vm_map));
 

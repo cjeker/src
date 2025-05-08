@@ -22,6 +22,9 @@ option		NTFS		# NTFS support
 option		SUSPEND
 option		HIBERNATE
 
+option		DDB_SAFE_CONSOLE
+option		SPLASSERT_WATCH
+
 config		bsd	swap generic
 
 mainbus0 at root
