@@ -1685,7 +1685,7 @@ proc_stop_finish(struct proc *p)
 	atomic_clearbits_int(&p->p_flag, P_INSCHED);
 	if (p->p_stat == SSTOP) {
 		p->p_ru.ru_nvcsw++;
-		mi_switch();
+		mi_switch(&sched_lock);
 	} else {
 		KASSERT(p->p_stat == SONPROC);
 		SCHED_UNLOCK();
