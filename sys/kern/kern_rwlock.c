@@ -290,6 +290,8 @@ rw_do_enter_write(struct rwlock *rwl, int flags, unsigned long pc)
 			if (owner == 0) {
 				spc->spc_spinning--;
 				/* ok, we won now. */
+				LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW,
+				    LLTRACE_LK_A_EXCL, pc);
 				goto locked;
 			}
 		}
@@ -332,11 +334,11 @@ rw_do_enter_write(struct rwlock *rwl, int flags, unsigned long pc)
 		owner = rw_cas(&rwl->rwl_owner, 0, self);
 	} while (owner != 0);
 	rw_dec(&rwl->rwl_waiters);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_EXCL, pc);
 
 locked:
 	membar_enter_after_atomic();
 	WITNESS_LOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE);
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_EXCL, pc);
 
 	return (0);
 }
@@ -431,11 +433,11 @@ rw_do_enter_read(struct rwlock *rwl, int flags, unsigned long pc)
 		}
 	} while (!rw_read_incr(rwl, 0));
 	rw_dec(&rwl->rwl_readers);
+	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_SHARED, pc);
 
 locked:
 	membar_enter_after_atomic();
 	WITNESS_LOCK(&rwl->rwl_lock_obj, 0);
-	LLTRACE(lltrace_lock, rwl, LLTRACE_LK_RW, LLTRACE_LK_A_SHARED, pc);
 
 	return (0);
 }
