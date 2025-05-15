@@ -108,7 +108,7 @@ struct smr_entry;
 struct schedstate_percpu {
 	struct proc *spc_idleproc;	/* idle proc for this cpu */
 	TAILQ_HEAD(prochead, proc) spc_qs[SCHED_NQS];
-	LIST_HEAD(,proc) spc_deadproc;
+	TAILQ_HEAD(,proc) spc_deadproc;
 	struct timespec spc_runtime;	/* time curproc started running */
 	volatile int spc_schedflags;	/* flags; see below */
 	u_int spc_schedticks;		/* ticks for schedclock() */
