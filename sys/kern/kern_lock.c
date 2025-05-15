@@ -24,6 +24,7 @@
 #include <sys/atomic.h>
 #include <sys/witness.h>
 #include <sys/mutex.h>
+#include <sys/tracepoint.h>
 
 #include <ddb/db_output.h>
 
@@ -129,6 +130,7 @@ __mp_lock(struct __mp_lock *mpl)
 {
 	struct __mp_lock_cpu *cpu = &mpl->mpl_cpus[cpu_number()];
 	unsigned long s;
+	unsigned int depth;
 
 #ifdef WITNESS
 	if (!__mp_lock_held(mpl, curcpu()))
@@ -136,15 +138,24 @@ __mp_lock(struct __mp_lock *mpl)
 		    LOP_EXCLUSIVE | LOP_NEWORDER, NULL);
 #endif
 
+
 	s = intr_disable();
-	if (cpu->mplc_depth++ == 0)
+	depth = cpu->mplc_depth++;
+	if (depth == 0) {
+		LLTRACE(lltrace_lock, mpl, LLTRACE_LK_K, LLTRACE_LK_A_START,
+		    (unsigned long)__builtin_return_address(0));
 		cpu->mplc_ticket = atomic_inc_int_nv(&mpl->mpl_users);
+	}
 	intr_restore(s);
 
 	__mp_lock_spin(mpl, cpu->mplc_ticket);
 	membar_enter_after_atomic();
 
 	WITNESS_LOCK(&mpl->mpl_lock_obj, LOP_EXCLUSIVE);
+
+	if (depth == 0)
+		LLTRACE(lltrace_lock, mpl, LLTRACE_LK_K, LLTRACE_LK_A_EXCL,
+		    (unsigned long)__builtin_return_address(0));
 }
 
 void
@@ -164,6 +175,8 @@ __mp_unlock(struct __mp_lock *mpl)
 
 	s = intr_disable();
 	if (--cpu->mplc_depth == 0) {
+		LLTRACE(lltrace_lock, mpl, LLTRACE_LK_K, LLTRACE_LK_R_EXCL,
+		    (unsigned long)__builtin_return_address(0));
 		membar_exit();
 		mpl->mpl_ticket++;
 	}
@@ -179,6 +192,9 @@ __mp_release_all(struct __mp_lock *mpl)
 #ifdef WITNESS
 	int i;
 #endif
+
+	LLTRACE(lltrace_lock, mpl, LLTRACE_LK_K, LLTRACE_LK_R_EXCL,
+	    (unsigned long)__builtin_return_address(0));
 
 	s = intr_disable();
 	rv = cpu->mplc_depth;
@@ -227,29 +243,65 @@ __mtx_init(struct mutex *mtx, int wantipl)
 void
 mtx_enter(struct mutex *mtx)
 {
-	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
+	struct cpu_info *owner, *ci = curcpu();
+	struct schedstate_percpu *spc = &ci->ci_schedstate;
+	int s;
 #ifdef MP_LOCKDEBUG
 	int nticks = __mp_lock_spinout;
+#endif
+#if NLLT > 0
+	unsigned int lltev = LLTRACE_LK_I_EXCL;
 #endif
 
 	WITNESS_CHECKORDER(MUTEX_LOCK_OBJECT(mtx),
 	    LOP_EXCLUSIVE | LOP_NEWORDER, NULL);
 
-	spc->spc_spinning++;
-	while (mtx_enter_try(mtx) == 0) {
-		do {
-			CPU_BUSY_CYCLE();
-#ifdef MP_LOCKDEBUG
-			if (--nticks == 0) {
-				db_printf("%s: %p lock spun out\n",
-				    __func__, mtx);
-				db_enter();
-				nticks = __mp_lock_spinout;
-			}
+	/* Avoid deadlocks after panic or in DDB */
+	if (panicstr || db_active)
+		return;
+
+	if (mtx->mtx_wantipl != IPL_NONE)
+		s = splraise(mtx->mtx_wantipl);
+
+	owner = atomic_cas_ptr(&mtx->mtx_owner, NULL, ci);
+#ifdef DIAGNOSTIC
+	if (__predict_false(owner == ci))
+		panic("mtx %p: locking against myself", mtx);
 #endif
-		} while (mtx->mtx_owner != NULL);
+	if (owner != NULL) {
+		LLTRACE_SPC(spc, lltrace_lock, mtx, LLTRACE_LK_MTX,
+		    LLTRACE_LK_A_START, (unsigned long)__builtin_return_address(0));
+
+		spc->spc_spinning++;
+		do {
+			do {
+				CPU_BUSY_CYCLE();
+#ifdef MP_LOCKDEBUG
+				if (--nticks == 0) {
+					db_printf("%s: %p lock spun out\n",
+					    __func__, mtx);
+					db_enter();
+					nticks = __mp_lock_spinout;
+				}
+#endif
+			} while (mtx->mtx_owner != NULL);
+		} while (atomic_cas_ptr(&mtx->mtx_owner, NULL, ci) != NULL);
+		spc->spc_spinning--;
+
+#if NLLT > 0
+		lltev = LLTRACE_LK_A_EXCL;
+#endif
 	}
-	spc->spc_spinning--;
+
+	membar_enter_after_atomic();
+	if (mtx->mtx_wantipl != IPL_NONE)
+		mtx->mtx_oldipl = s;
+#ifdef DIAGNOSTIC
+	ci->ci_mutex_level++;
+#endif
+	WITNESS_LOCK(MUTEX_LOCK_OBJECT(mtx), LOP_EXCLUSIVE);
+	LLTRACE_SPC(spc, lltrace_lock, mtx, LLTRACE_LK_MTX, lltev,
+	    (unsigned long)__builtin_return_address(0));
 }
 
 int
@@ -278,12 +330,16 @@ mtx_enter_try(struct mutex *mtx)
 		ci->ci_mutex_level++;
 #endif
 		WITNESS_LOCK(MUTEX_LOCK_OBJECT(mtx), LOP_EXCLUSIVE);
+		LLTRACE_CPU(ci, lltrace_lock, mtx, LLTRACE_LK_MTX,
+		    LLTRACE_LK_I_EXCL, (unsigned long)__builtin_return_address(0));
 		return (1);
 	}
 
 	if (mtx->mtx_wantipl != IPL_NONE)
 		splx(s);
 
+	LLTRACE_CPU(ci, lltrace_lock, mtx, LLTRACE_LK_MTX, LLTRACE_LK_I_FAIL,
+	    (unsigned long)__builtin_return_address(0));
 	return (0);
 }
 #else
@@ -313,6 +369,8 @@ mtx_enter(struct mutex *mtx)
 	ci->ci_mutex_level++;
 #endif
 	WITNESS_LOCK(MUTEX_LOCK_OBJECT(mtx), LOP_EXCLUSIVE);
+	LLTRACE(lltrace_lock, mtx, LLTRACE_LK_MTX, LLTRACE_LK_I_EXCL,
+	    (unsigned long)__builtin_return_address(0));
 }
 
 int
@@ -333,6 +391,8 @@ mtx_leave(struct mutex *mtx)
 		return;
 
 	MUTEX_ASSERT_LOCKED(mtx);
+	LLTRACE(lltrace_lock, mtx, LLTRACE_LK_MTX, LLTRACE_LK_R_EXCL,
+	    (unsigned long)__builtin_return_address(0));
 	WITNESS_UNLOCK(MUTEX_LOCK_OBJECT(mtx), LOP_EXCLUSIVE);
 
 #ifdef DIAGNOSTIC

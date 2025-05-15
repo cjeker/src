@@ -21,6 +21,7 @@
 #include <sys/malloc.h>
 #include <sys/mutex.h>
 #include <sys/queue.h>
+#include <sys/tracepoint.h>
 
 #include <machine/intr.h>
 
@@ -65,6 +66,8 @@ softintr_dispatch(int level)
 	struct softintr_queue *queue = &softintr_queue[level];
 	struct softintr_hand *sih;
 
+	LLTRACE_CPU(ci, lltrace_intr_enter, LLTRACE_INTR_T_SW, level);
+
 	mtx_enter(&softintr_lock);
 	while ((sih = TAILQ_FIRST(queue)) != NULL) {
 		KASSERT((sih->sih_state & (SIS_PENDING | SIS_RESTART)) ==
@@ -76,6 +79,7 @@ softintr_dispatch(int level)
 		sih->sih_runner = ci;
 		mtx_leave(&softintr_lock);
 
+		LLTRACE_CPU(ci, lltrace_fn_enter, sih->sih_fn);
 		if (sih->sih_flags & SIF_MPSAFE) {
 			(*sih->sih_fn)(sih->sih_arg);
 		} else {
@@ -83,6 +87,7 @@ softintr_dispatch(int level)
 			(*sih->sih_fn)(sih->sih_arg);
 			KERNEL_UNLOCK();
 		}
+		LLTRACE_CPU(ci, lltrace_fn_leave, sih->sih_fn);
 
 		mtx_enter(&softintr_lock);
 		KASSERT((sih->sih_state & SIS_PENDING) == 0);
@@ -96,6 +101,8 @@ softintr_dispatch(int level)
 		uvmexp.softs++;
 	}
 	mtx_leave(&softintr_lock);
+
+	LLTRACE_CPU(ci, lltrace_intr_leave, LLTRACE_INTR_T_SW, level);
 }
 
 void *

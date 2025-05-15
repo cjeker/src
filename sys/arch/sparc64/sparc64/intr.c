@@ -45,6 +45,7 @@
 #include <sys/systm.h>
 #include <sys/kernel.h>
 #include <sys/malloc.h>
+#include <sys/tracepoint.h>
 
 #include <dev/cons.h>
 
@@ -74,10 +75,11 @@ void	intr_ack(struct intrhand *);
 int
 intr_handler(struct trapframe *tf, struct intrhand *ih)
 {
-	struct cpu_info *ci = curcpu();
 	int rc;
 #ifdef MULTIPROCESSOR
 	int need_lock;
+
+	LLTRACE(lltrace_intr_enter, LLTRACE_INTR_T_HW, ih->ih_number);
 
 	if (ih->ih_mpsafe)
 		need_lock = 0;
@@ -88,12 +90,18 @@ intr_handler(struct trapframe *tf, struct intrhand *ih)
 		KERNEL_LOCK();
 #endif
 	ci->ci_idepth++;
+	LLTRACE(lltrace_fn_enter, ih->ih_fun);
 	rc = (*ih->ih_fun)(ih->ih_arg ? ih->ih_arg : tf);
+	LLTRACE(lltrace_fn_leave, ih->ih_fun);
 	ci->ci_idepth--;
+
 #ifdef MULTIPROCESSOR
 	if (need_lock)
 		KERNEL_UNLOCK();
 #endif
+
+	LLTRACE(lltrace_intr_leave, LLTRACE_INTR_T_HW, ih->ih_number);
+
 	return rc;
 }
 
@@ -112,7 +120,9 @@ intr_list_handler(void *arg)
 		sparc_wrpr(pil, ih->ih_pil, 0);
 		ci->ci_handled_intr_level = ih->ih_pil;
 
+		LLTRACE_CPU(ci, lltrace_fn_enter, ih->ih_fun);
 		rv = ih->ih_fun(ih->ih_arg);
+		LLTRACE_CPU(ci, lltrace_fn_leave, ih->ih_fun);
 		if (rv) {
 			ih->ih_count.ec_count++;
 			claimed = 1;

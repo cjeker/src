@@ -30,6 +30,7 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/proc.h>
+#include <sys/tracepoint.h>
 
 #include <uvm/uvm_extern.h>
 
@@ -73,6 +74,8 @@ sun4u_send_ipi(int itid, void (*func)(void), u_int64_t arg0, u_int64_t arg1)
 	int i, j, shift = 0;
 
 	KASSERT((u_int64_t)func > MAXINTNUM);
+
+	LLTRACE(lltrace_ipi, itid);
 
 	/*
 	 * UltraSPARC-IIIi CPUs select the BUSY/NACK pair based on the
@@ -127,6 +130,8 @@ sun4v_send_ipi(int itid, void (*func)(void), u_int64_t arg0, u_int64_t arg1)
 	u_int64_t s;
 	int err, i;
 
+	LLTRACE(lltrace_ipi, itid);
+
 	s = intr_disable();
 
 	stha(ci->ci_cpuset, ASI_PHYS_CACHED, itid);
@@ -154,6 +159,8 @@ sun4v_send_ipi(int itid, void (*func)(void), u_int64_t arg0, u_int64_t arg1)
 void
 sparc64_broadcast_ipi(void (*func)(void), u_int64_t arg0, u_int64_t arg1)
 {
+	LLTRACE(lltrace_ipi, ~0x0);
+
 	if (CPU_ISSUN4V)
 		sun4v_broadcast_ipi(func, arg0, arg1);
 	else
@@ -180,6 +187,8 @@ sun4v_broadcast_ipi(void (*func)(void), u_int64_t arg0, u_int64_t arg1)
 	struct cpu_info *ci = curcpu();
 	paddr_t cpuset = ci->ci_cpuset;
 	int err, i, ncpus = 0;
+
+	LLTRACE(lltrace_ipi, ~0x0);
 
 	for (ci = cpus; ci != NULL; ci = ci->ci_next) {
 		if (ci->ci_cpuid == cpu_number())

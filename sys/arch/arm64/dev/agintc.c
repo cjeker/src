@@ -27,6 +27,7 @@
 #include <sys/malloc.h>
 #include <sys/device.h>
 #include <sys/evcount.h>
+#include <sys/tracepoint.h>
 
 #include <machine/bus.h>
 #include <machine/cpufunc.h>
@@ -1144,7 +1145,9 @@ agintc_run_handler(struct intrhand *ih, void *frame, int s)
 	else
 		arg = frame;
 
+	LLTRACE(lltrace_fn_enter, ih->ih_func);
 	handled = ih->ih_func(arg);
+	LLTRACE(lltrace_fn_leave, ih->ih_func);
 	if (handled)
 		ih->ih_count.ec_count++;
 
@@ -1489,6 +1492,8 @@ agintc_send_ipi(struct cpu_info *ci, int id)
 {
 	struct agintc_softc	*sc = agintc_sc;
 	uint64_t sendmask;
+
+	LLTRACE(lltrace_ipi, ci->ci_cpuid);
 
 	if (ci == curcpu() && id == ARM_IPI_NOP)
 		return;
