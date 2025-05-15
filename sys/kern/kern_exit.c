@@ -241,6 +241,16 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 		 */
 		if (pr->ps_pptr->ps_sigacts->ps_sigflags & SAS_NOCLDWAIT)
 			atomic_setbits_int(&pr->ps_flags, PS_NOZOMBIE);
+
+		/* Teardown the virtual address space. */
+		if ((p->p_flag & P_SYSTEM) == 0) {
+#ifdef MULTIPROCESSOR
+			__mp_release_all(&kernel_lock);
+#endif
+			uvm_purge(pr);
+			KERNEL_LOCK();
+		}
+
 	}
 
 	p->p_fd = NULL;		/* zap the thread's copy */

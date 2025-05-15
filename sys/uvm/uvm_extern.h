@@ -268,6 +268,7 @@ int			uvm_fault(vm_map_t, vaddr_t, vm_fault_t, vm_prot_t);
 
 vaddr_t			uvm_uarea_alloc(void);
 void			uvm_uarea_free(struct proc *);
+void			uvm_purge(struct process *);
 void			uvm_exit(struct process *);
 void			uvm_init_limits(struct plimit *);
 boolean_t		uvm_kernacc(caddr_t, size_t, int);
@@ -401,6 +402,7 @@ void			uvmspace_init(struct vmspace *, struct pmap *,
 void			uvmspace_exec(struct proc *, vaddr_t, vaddr_t);
 struct vmspace		*uvmspace_fork(struct process *);
 void			uvmspace_addref(struct vmspace *);
+void			uvmspace_purge(struct vmspace *);
 void			uvmspace_free(struct vmspace *);
 struct vmspace		*uvmspace_share(struct process *);
 int			uvm_share(vm_map_t, vaddr_t, vm_prot_t,

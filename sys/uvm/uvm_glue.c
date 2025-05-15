@@ -286,6 +286,19 @@ uvm_uarea_free(struct proc *p)
 }
 
 /*
+ * uvm_purge: teardown a virtual address space
+ */
+void
+uvm_purge(struct process *pr)
+{
+	struct vmspace *vm = pr->ps_vmspace;
+
+	KERNEL_ASSERT_UNLOCKED();
+
+	uvmspace_purge(vm);
+}
+
+/*
  * uvm_exit: exit a virtual address space
  */
 void
