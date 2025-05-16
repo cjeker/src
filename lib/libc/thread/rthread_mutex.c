@@ -36,13 +36,6 @@ enum {
 	CONTENDED = 2,	/* threads waiting for this mutex */
 };
 
-#define SPIN_COUNT	128
-#if defined(__i386__) || defined(__amd64__)
-#define SPIN_WAIT()	asm volatile("pause": : : "memory")
-#else
-#define SPIN_WAIT()	do { } while (0)
-#endif
-
 static _atomic_lock_t static_init_lock = _SPINLOCK_UNLOCKED;
 
 int

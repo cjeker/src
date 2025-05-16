@@ -21,6 +21,7 @@
 
 #include <sys/types.h>
 #include <sys/atomic.h>
+#include <sys/futex.h>
 
 #include <pthread.h>
 #include <stdlib.h>
@@ -32,6 +33,7 @@
 #define RTHREAD_ENV_DEBUG	"RTHREAD_DEBUG"
 
 int _rthread_debug_level;
+unsigned int _ncpus = 0; /* XXX init */
 
 static int _threads_inited;
 
@@ -43,11 +45,43 @@ struct pthread _initial_thread = {
 /*
  * internal support functions
  */
+
+/*
+ * Wait for the spinlock to become unlocked.
+ *
+ * On uniprocessor systems it is pointless to spin waiting for
+ * another thread to release the lock because this thread occupies
+ * the only CPU, preventing the thread holding the lock from running
+ * and leaving the critical section.
+ *
+ * On multiprocessor systems we spin, but not forever in case there
+ * are more threads than CPUs still, and more progress might be made
+ * if we can get the other thread to run.
+ */
+
+static inline void
+_spinlock_wait(volatile _atomic_lock_t *lock)
+{
+	do {
+		if (_ncpus != 1) {
+			unsigned int spin;
+
+			for (spin = 0; spin < SPIN_COUNT; spin++) {
+				SPIN_WAIT();
+				if (*lock == _ATOMIC_LOCK_UNLOCKED)
+					return;
+			}
+		}
+
+		sched_yield();
+	} while (*lock != _ATOMIC_LOCK_UNLOCKED);
+}
+
 void
 _spinlock(volatile _atomic_lock_t *lock)
 {
 	while (_atomic_lock(lock))
-		sched_yield();
+		_spinlock_wait(lock);
 	membar_enter_after_atomic();
 }
 DEF_STRONG(_spinlock);
@@ -69,6 +103,156 @@ _spinunlock(volatile _atomic_lock_t *lock)
 	*lock = _ATOMIC_LOCK_UNLOCKED;
 }
 DEF_STRONG(_spinunlock);
+
+/*
+ * libc internal mutex
+ *
+ */
+
+void
+__cmtx_init(struct __cmtx *cm)
+{
+	cm->spin = _SPINLOCK_UNLOCKED;
+	cm->lock = 0;
+	cm->owner = NULL;
+	cm->waiting = 0;
+}
+
+void
+__cmtx_enter(struct __cmtx *cm)
+{
+	pthread_t self = pthread_self();
+	pthread_t owner;
+
+	_spinlock(&cm->spin);
+	owner = cm->owner;
+	if (owner == NULL) {
+		cm->owner = self;
+		cm->lock = 1;
+	} else
+		cm->waiting++;
+	_spinunlock(&cm->spin);
+
+	if (owner == NULL) {
+		/* the spinlock ops provided enough membars */
+		return;
+	}
+
+	do {
+		futex(&cm->lock, FUTEX_WAIT_PRIVATE, 1, NULL, NULL);
+
+		_spinlock(&cm->spin);
+		owner = cm->owner;
+		if (owner == NULL) {
+			cm->waiting--;
+			cm->owner = self;
+			cm->lock = 1;
+		}
+		_spinunlock(&cm->spin);
+	} while (owner != NULL);
+
+	/* the spinlock ops provided enough membars */
+}
+
+void
+__cmtx_leave(struct __cmtx *cm)
+{
+	unsigned int waiting;
+
+	_spinlock(&cm->spin);
+	waiting = cm->waiting;
+	cm->owner = NULL;
+	cm->lock = 0;
+	_spinunlock(&cm->spin); /* this provides membar_exit() */
+
+	if (waiting)
+		futex(&cm->lock, FUTEX_WAKE_PRIVATE, 1, NULL, NULL);
+}
+
+void
+__rcmtx_init(struct __rcmtx *rcm)
+{
+	rcm->spin = _SPINLOCK_UNLOCKED;
+	rcm->lock = 0;
+	rcm->owner = NULL;
+	rcm->depth = 0;
+	rcm->waiting = 0;
+}
+
+int
+__rcmtx_enter_try(struct __rcmtx *rcm)
+{
+	pthread_t self = pthread_self();
+	pthread_t owner;
+	uint32_t locked;
+
+	_spinlock(&rcm->spin);
+	owner = rcm->owner;
+	if (owner == NULL) {
+		rcm->owner = owner = self;
+		rcm->lock = 1;
+	}
+	_spinunlock(&rcm->spin);
+
+	if (owner != self)
+		return (0);
+
+	rcm->depth++;
+
+	return (1);
+}
+
+void
+__rcmtx_enter(struct __rcmtx *rcm)
+{
+	pthread_t self = pthread_self();
+	pthread_t owner;
+	uint32_t locked;
+
+	_spinlock(&rcm->spin);
+	owner = rcm->owner;
+	if (owner == NULL) {
+		rcm->owner = owner = self;
+		rcm->lock = 1;
+	} else if (owner != self)
+		rcm->waiting++;
+	_spinunlock(&rcm->spin);
+
+	while (owner != self) {
+		futex(&rcm->lock, FUTEX_WAIT_PRIVATE, 1, NULL, NULL);
+
+		_spinlock(&rcm->spin);
+		owner = rcm->owner;
+		if (owner == NULL) {
+			rcm->owner = owner = self;
+			rcm->lock = 1;
+			rcm->waiting--;
+		}
+		_spinunlock(&rcm->spin);
+	}
+
+	/* the spinlock ops provided enough membars */
+
+	rcm->depth++;
+}
+
+void
+__rcmtx_leave(struct __rcmtx *rcm)
+{
+	unsigned int waiting;
+
+	if (--rcm->depth > 0)
+		return;
+
+	_spinlock(&rcm->spin);
+	waiting = rcm->waiting;
+	rcm->lock = 0;
+	rcm->owner = NULL;
+	_spinunlock(&rcm->spin); /* this provides membar_exit() */
+
+	if (waiting)
+		futex(&rcm->lock, FUTEX_WAKE_PRIVATE, 1, NULL, NULL);
+}
 
 static void
 _rthread_init(void)
