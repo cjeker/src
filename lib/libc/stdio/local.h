@@ -39,8 +39,8 @@
 
 #include <wchar.h> 
 #include "wcio.h"
-#include "fileext.h"
 #include "thread_private.h"
+#include "fileext.h"
 
 __BEGIN_HIDDEN_DECLS
 void	_cleanup(void);
@@ -95,13 +95,5 @@ __END_HIDDEN_DECLS
 	(fp)->_lb._base = NULL; \
 }
 
-#define FLOCKFILE(fp)							\
-	do {								\
-		if (_thread_cb.tc_flockfile != NULL)			\
-			_thread_cb.tc_flockfile(fp);			\
-	} while (0)
-#define FUNLOCKFILE(fp)							\
-	do {								\
-		if (_thread_cb.tc_funlockfile != NULL)			\
-			_thread_cb.tc_funlockfile(fp);			\
-	} while (0)
+#define FLOCKFILE(fp) flockfile(fp)
+#define FUNLOCKFILE(fp) funlockfile(fp)
