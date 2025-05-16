@@ -35,6 +35,7 @@
 #define RTHREAD_ENV_DEBUG	"RTHREAD_DEBUG"
 
 int _rthread_debug_level;
+unsigned int _ncpus = 0; /* XXX init */
 
 static int _threads_inited;
 
@@ -46,11 +47,43 @@ struct pthread _initial_thread = {
 /*
  * internal support functions
  */
+
+/*
+ * Wait for the spinlock to become unlocked.
+ *
+ * On uniprocessor systems it is pointless to spin waiting for
+ * another thread to release the lock because this thread occupies
+ * the only CPU, preventing the thread holding the lock from running
+ * and leaving the critical section.
+ *
+ * On multiprocessor systems we spin, but not forever in case there
+ * are more threads than CPUs still, and more progress might be made
+ * if we can get the other thread to run.
+ */
+
+static inline void
+_spinlock_wait(volatile _atomic_lock_t *lock)
+{
+	do {
+		if (_ncpus != 1) {
+			unsigned int spin;
+
+			for (spin = 0; spin < SPIN_COUNT; spin++) {
+				SPIN_WAIT();
+				if (*lock == _ATOMIC_LOCK_UNLOCKED)
+					return;
+			}
+		}
+
+		sched_yield();
+	} while (*lock != _ATOMIC_LOCK_UNLOCKED);
+}
+
 void
 _spinlock(volatile _atomic_lock_t *lock)
 {
 	while (_atomic_lock(lock))
-		sched_yield();
+		_spinlock_wait(lock);
 	membar_enter_after_atomic();
 }
 DEF_STRONG(_spinlock);

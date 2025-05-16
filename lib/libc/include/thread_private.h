@@ -291,6 +291,21 @@ struct __sem {
 	int shared;
 };
 
+struct __cmtx {
+	_atomic_lock_t		spin;
+	uint32_t		lock;
+	pthread_t		owner;
+	unsigned int		waiting;
+};
+
+struct __rcmtx {
+	_atomic_lock_t		spin;
+	uint32_t		lock;
+	pthread_t		owner;
+	unsigned int		depth;
+	unsigned int		waiting;
+};
+
 TAILQ_HEAD(pthread_queue, pthread);
 
 #ifdef FUTEX
@@ -460,6 +475,14 @@ struct pthread {
 /*
  * Internal functions exported from libc's thread bits for use by libpthread
  */
+
+#define SPIN_COUNT	128
+#if defined(__i386__) || defined(__amd64__)
+#define SPIN_WAIT()	asm volatile("pause": : : "memory")
+#else
+#define SPIN_WAIT()	do { } while (0)
+#endif
+
 void	_spinlock(volatile _atomic_lock_t *);
 int	_spinlocktry(volatile _atomic_lock_t *);
 void	_spinunlock(volatile _atomic_lock_t *);
@@ -478,6 +501,34 @@ void	_rthread_debug(int, const char *, ...)
 		__attribute__((__format__ (printf, 2, 3)));
 pid_t	_thread_dofork(pid_t (*_sys_fork)(void));
 void	_thread_finalize(void);
+
+/*
+ * simple^Wmutex for libc/libpthread to use internally
+ */
+void	__cmtx_init(struct __cmtx *);
+void	__cmtx_enter(struct __cmtx *);
+void	__cmtx_leave(struct __cmtx *);
+
+#define __CMTX_INITIALIZER(_cm) {					\
+	.spin = _SPINLOCK_UNLOCKED,					\
+	.owner = NULL,							\
+	.waiting = 0,							\
+}
+
+/*
+ * recursive mutex for libc/libpthread to use internally
+ */
+void	__rcmtx_init(struct __rcmtx *);
+int	__rcmtx_enter_try(struct __rcmtx *);
+void	__rcmtx_enter(struct __rcmtx *);
+void	__rcmtx_leave(struct __rcmtx *);
+
+#define __RCMTX_INITIALIZER(_rcm) {					\
+	.spin = _SPINLOCK_UNLOCKED,					\
+	.owner = NULL,							\
+	.depth = 0,							\
+	.waiting = 0,							\
+}
 
 /*
  * Threading syscalls not declared in system headers

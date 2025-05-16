@@ -39,6 +39,7 @@
 
 #include <wchar.h> 
 #include "thread_private.h"
+#include "fileext.h"
 
 __BEGIN_HIDDEN_DECLS
 void	_cleanup(void);

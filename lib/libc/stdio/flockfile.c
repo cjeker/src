@@ -3,13 +3,21 @@
 #include <stdio.h>
 #include "local.h"
 
+static inline struct __rcmtx *
+frcmtx(FILE *fp)
+{
+	return &_EXT(fp)->_lock;
+}
+
 void
 flockfile(FILE *fp)
 {
-	FLOCKFILE(fp);
+	if (__isthreaded) {
+		struct __rcmtx *rcm = frcmtx(fp);
+		__rcmtx_enter(rcm);
+	}
 }
 DEF_WEAK(flockfile);
-
 
 int
 ftrylockfile(FILE *fp)
@@ -24,6 +32,9 @@ DEF_WEAK(ftrylockfile);
 void
 funlockfile(FILE *fp)
 {
-	FUNLOCKFILE(fp);
+	if (__isthreaded) {
+		struct __rcmtx *rcm = frcmtx(fp);
+		__rcmtx_leave(rcm);
+	}
 }
 DEF_WEAK(funlockfile);
