@@ -8,7 +8,6 @@ SRCS+=	callbacks.c atfork.c
 SRCS+=	rthread.c \
 	rthread_condattr.c \
 	rthread_debug.c \
-	rthread_file.c \
 	rthread_libc.c \
 	rthread_once.c \
 	rthread_tls.c \
