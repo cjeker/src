@@ -108,7 +108,7 @@ io_close_queue(struct ibufqueue *bufq, struct ibuf *b)
 	if (ibuf_fd_avail(b))
 		len |= IO_FD_MARK;
 	ibuf_set(b, 0, &len, sizeof(len));
-	ibufq_enqueue(bufq, b);
+	ibufq_push(bufq, b);
 }
 
 /*

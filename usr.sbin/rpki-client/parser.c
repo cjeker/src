@@ -1126,7 +1126,7 @@ parse_writer(void *arg)
 				pthread_cond_wait(&globalmsgq_cond, &globalmsgq_mtx);
 			} else {
 				/* enqueue messages to local msgbuf */
-				msgbuf_enqueue(myq, globalmsgq);
+				msgbuf_concat(myq, globalmsgq);
 			}
 			pthread_mutex_unlock(&globalmsgq_mtx);
 		}
