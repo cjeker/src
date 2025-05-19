@@ -146,14 +146,6 @@ imsg_get(struct imsgbuf *imsgbuf, struct imsg *imsg)
 	return (imsg_get_len(imsg) + IMSG_HEADER_SIZE);
 }
 
-void
-imsg_ibufq_push(struct ibufqueue *bufq, struct imsg *imsg)
-{
-	ibuf_rewind(imsg->buf);
-	ibufq_enqueue(bufq, imsg->buf);
-	memset(imsg, 0, sizeof(*imsg));
-}
-
 int
 imsg_ibufq_pop(struct ibufqueue *bufq, struct imsg *imsg)
 {
@@ -175,6 +167,14 @@ imsg_ibufq_pop(struct ibufqueue *bufq, struct imsg *imsg)
 
 	*imsg = m;
 	return (1);
+}
+
+void
+imsg_ibufq_push(struct ibufqueue *bufq, struct imsg *imsg)
+{
+	ibuf_rewind(imsg->buf);
+	ibufq_enqueue(bufq, imsg->buf);
+	memset(imsg, 0, sizeof(*imsg));
 }
 
 int

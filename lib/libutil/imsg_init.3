@@ -27,16 +27,17 @@
 .Nm imsg_create ,
 .Nm imsg_forward ,
 .Nm imsg_free ,
-.Nm imsg_get_data ,
 .Nm imsg_get_buf ,
-.Nm imsg_get_strbuf ,
+.Nm imsg_get_data ,
 .Nm imsg_get_fd ,
 .Nm imsg_get_ibuf ,
 .Nm imsg_get_id ,
-.Nm imsg_get_ibuf ,
 .Nm imsg_get_len ,
 .Nm imsg_get_pid ,
+.Nm imsg_get_strbuf ,
 .Nm imsg_get_type ,
+.Nm imsg_ibufq_pop ,
+.Nm imsg_ibufq_push ,
 .Nm imsg_set_maxsize ,
 .Nm imsgbuf_allow_fdpass ,
 .Nm imsgbuf_clear ,
@@ -73,8 +74,6 @@
 .Ft int
 .Fn imsg_get_buf "struct imsg *imsg" "void *data" "size_t len"
 .Ft int
-.Fn imsg_get_strbuf "struct imsg *imsg" "char *str" "size_t len"
-.Ft int
 .Fn imsg_get_data "struct imsg *imsg" "void *data" "size_t len"
 .Ft int
 .Fn imsg_get_fd "struct imsg *imsg"
@@ -86,8 +85,14 @@
 .Fn imsg_get_len "struct imsg *imsg"
 .Ft pid_t
 .Fn imsg_get_pid "struct imsg *imsg"
+.Ft int
+.Fn imsg_get_strbuf "struct imsg *imsg" "char *str" "size_t len"
 .Ft uint32_t
 .Fn imsg_get_type "struct imsg *imsg"
+.Ft int
+.Fn imsg_ibufq_pop "struct ibufqueue *bufq" "struct imsg *imsg"
+.Ft void
+.Fn imsg_ibufq_push "struct ibufqueue *bufq" "struct imsg *imsg"
 .Ft int
 .Fn imsg_set_maxsize "struct ibuf *msg" "size_t max"
 .Ft void
@@ -250,13 +255,6 @@ if it succeeds, otherwise
 .Fa msg
 is freed and \-1 is returned.
 .Pp
-.Fn imsg_set_maxsize
-reduces the maximum payload of
-.Fa msg
-to
-.Fa max .
-The routine returns 0 if it succeeds, \-1 otherwise.
-.Pp
 .Fn imsg_close
 completes creation of
 .Fa msg
@@ -374,6 +372,23 @@ ensures that
 .Fa str
 is NUL-terminated.
 The functions return 0 on success, \-1 otherwise.
+.Pp
+.Fn imsg_set_maxsize
+reduces the maximum payload of
+.Fa msg
+to
+.Fa max .
+The routine returns 0 if it succeeds, \-1 otherwise.
+.Pp
+.Fn imsg_ibufq_pop
+and
+.Fn imsg_ibufq_push
+allow to requeue an imsg onto the ibufqueue
+.Fa bufq .
+.Fn imsg_ibufq_pop
+returns 1 on success, 0 if no messages are ready, or \-1 for an error.
+See
+.Xr ibufq_new 3 for more info.
 .Pp
 MAX_IMSGSIZE is defined as the maximum size of a single imsg, currently
 16384 bytes.
