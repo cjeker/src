@@ -68,8 +68,8 @@
 		ibuf_truncate;
 		ibuf_write;
 		ibufq_concat;
-		ibufq_dequeue;
-		ibufq_enqueue;
+		ibufq_pop;
+		ibufq_push;
 		ibufq_flush;
 		ibufq_free;
 		ibufq_new;
@@ -112,7 +112,7 @@
 		logout;
 		logwtmp;
 		msgbuf_clear;
-		msgbuf_enqueue;
+		msgbuf_concat;
 		msgbuf_free;
 		msgbuf_get;
 		msgbuf_new;

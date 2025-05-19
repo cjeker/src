@@ -431,7 +431,7 @@ ibuf_rewind(struct ibuf *buf)
 void
 ibuf_close(struct msgbuf *msgbuf, struct ibuf *buf)
 {
-	ibufq_enqueue(&msgbuf->bufs, buf);
+	ibufq_push(&msgbuf->bufs, buf);
 }
 
 void
@@ -701,11 +701,11 @@ msgbuf_clear(struct msgbuf *msgbuf)
 struct ibuf *
 msgbuf_get(struct msgbuf *msgbuf)
 {
-	return ibufq_dequeue(&msgbuf->rbufs);
+	return ibufq_pop(&msgbuf->rbufs);
 }
 
 void
-msgbuf_enqueue(struct msgbuf *msgbuf, struct ibufqueue *from)
+msgbuf_concat(struct msgbuf *msgbuf, struct ibufqueue *from)
 {
 	ibufq_concat(&msgbuf->bufs, from);
 }
@@ -843,7 +843,7 @@ ibuf_read_process(struct msgbuf *msgbuf, int fd)
 			goto fail;
 
 		if (ibuf_left(msgbuf->rpmsg) == 0) {
-			ibufq_enqueue(&msgbuf->rbufs, msgbuf->rpmsg);
+			ibufq_push(&msgbuf->rbufs, msgbuf->rpmsg);
 			msgbuf->rpmsg = NULL;
 		}
 	} while (ibuf_size(&rbuf) > 0);
@@ -1016,18 +1016,8 @@ ibufq_free(struct ibufqueue *bufq)
 	free(bufq);
 }
 
-void
-ibufq_enqueue(struct ibufqueue *bufq, struct ibuf *buf)
-{
-	/* if buf lives on the stack abort before causing more harm */
-	if (buf->fd == IBUF_FD_MARK_ON_STACK)
-		abort();
-	TAILQ_INSERT_TAIL(&bufq->bufs, buf, entry);
-	bufq->queued++;
-}
-
 struct ibuf *
-ibufq_dequeue(struct ibufqueue *bufq)
+ibufq_pop(struct ibufqueue *bufq)
 {
 	struct ibuf *buf;
 
@@ -1036,6 +1026,16 @@ ibufq_dequeue(struct ibufqueue *bufq)
 	TAILQ_REMOVE(&bufq->bufs, buf, entry);
 	bufq->queued--;
 	return buf;
+}
+
+void
+ibufq_push(struct ibufqueue *bufq, struct ibuf *buf)
+{
+	/* if buf lives on the stack abort before causing more harm */
+	if (buf->fd == IBUF_FD_MARK_ON_STACK)
+		abort();
+	TAILQ_INSERT_TAIL(&bufq->bufs, buf, entry);
+	bufq->queued++;
 }
 
 uint32_t

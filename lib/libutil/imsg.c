@@ -152,7 +152,7 @@ imsg_ibufq_pop(struct ibufqueue *bufq, struct imsg *imsg)
 	struct imsg	 m;
 	struct ibuf	*buf;
 
-	if ((buf = ibufq_dequeue(bufq)) == NULL)
+	if ((buf = ibufq_pop(bufq)) == NULL)
 		return (0);
 
 	if (ibuf_get(buf, &m.hdr, sizeof(m.hdr)) == -1)
@@ -173,7 +173,7 @@ void
 imsg_ibufq_push(struct ibufqueue *bufq, struct imsg *imsg)
 {
 	ibuf_rewind(imsg->buf);
-	ibufq_enqueue(bufq, imsg->buf);
+	ibufq_push(bufq, imsg->buf);
 	memset(imsg, 0, sizeof(*imsg));
 }
 
