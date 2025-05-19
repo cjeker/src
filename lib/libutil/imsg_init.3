@@ -27,7 +27,6 @@
 .Nm imsg_create ,
 .Nm imsg_forward ,
 .Nm imsg_free ,
-.Nm imsg_get ,
 .Nm imsg_get_data ,
 .Nm imsg_get_buf ,
 .Nm imsg_get_strbuf ,
@@ -42,6 +41,7 @@
 .Nm imsgbuf_allow_fdpass ,
 .Nm imsgbuf_clear ,
 .Nm imsgbuf_flush ,
+.Nm imsgbuf_get ,
 .Nm imsgbuf_init ,
 .Nm imsgbuf_queuelen ,
 .Nm imsgbuf_read ,
@@ -70,8 +70,6 @@
 .Fn imsg_forward "struct imsgbuf *imsgbuf" "struct imsg *msg"
 .Ft void
 .Fn imsg_free "struct imsg *imsg"
-.Ft ssize_t
-.Fn imsg_get "struct imsgbuf *imsgbuf" "struct imsg *imsg"
 .Ft int
 .Fn imsg_get_buf "struct imsg *imsg" "void *data" "size_t len"
 .Ft int
@@ -98,6 +96,8 @@
 .Fn imsgbuf_clear "struct imsgbuf *imsgbuf"
 .Ft int
 .Fn imsgbuf_flush "struct imsgbuf *imsgbuf"
+.Ft int
+.Fn imsgbuf_get "struct imsgbuf *imsgbuf" "struct imsg *imsg"
 .Ft int
 .Fn imsgbuf_init "struct imsgbuf *imsgbuf" "int fd"
 .Ft uint32_t
@@ -193,6 +193,18 @@ is set to indicate the error.
 .Fn imsgbuf_flush
 should not be called on non-blocking sockets since it will busy loop if the
 socket is not available.
+.Pp
+.Fn imsgbuf_get
+fills in an individual imsg pending on
+.Fa imsgbuf
+into the structure pointed to by
+.Fa imsg .
+It returns 1 on success, 0 if no messages are ready, or \-1 for an error.
+Received messages are returned as a
+.Em struct imsg ,
+which must be freed by
+.Fn imsg_free
+when no longer required.
 .Pp
 .Fn imsgbuf_queuelen
 returns the number of messages ready to be sent.
@@ -297,19 +309,6 @@ File descriptors are not forwarded by this function.
 It is possible to call
 .Fn imsg_forward
 more than once per message.
-.Pp
-.Fn imsg_get
-fills in an individual imsg pending on
-.Fa imsgbuf
-into the structure pointed to by
-.Fa imsg .
-It returns the total size of the message, 0 if no messages are ready, or \-1
-for an error.
-Received messages are returned as a
-.Em struct imsg ,
-which must be freed by
-.Fn imsg_free
-when no longer required.
 .Pp
 The accessors
 .Fn imsg_get_type ,
@@ -451,14 +450,13 @@ When the socket is ready for writing, queued messages are transmitted with
 And when ready for reading, messages are first received using
 .Fn imsgbuf_read
 and then extracted with
-.Fn imsg_get :
+.Fn imsgbuf_get :
 .Bd -literal -offset indent
 void
 dispatch_imsg(struct imsgbuf *imsgbuf)
 {
 	struct imsg	imsg;
-	ssize_t         n;
-	int		idata;
+	int		n, idata;
 
 	switch (imsgbuf_read(imsgbuf)) {
 	case -1:
@@ -470,8 +468,9 @@ dispatch_imsg(struct imsgbuf *imsgbuf)
 	}
 
 	for (;;) {
-		if ((n = imsg_get(imsgbuf, &imsg)) == -1) {
+		if ((n = imsgbuf_get(imsgbuf, &imsg)) == -1) {
 			/* handle read error */
+			break;
 		}
 		if (n == 0)	/* no more messages */
 			return;
