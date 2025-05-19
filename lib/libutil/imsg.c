@@ -57,13 +57,18 @@ imsgbuf_allow_fdpass(struct imsgbuf *imsgbuf)
 }
 
 int
-imsgbuf_set_maxsize(struct imsgbuf *imsgbuf, uint32_t maxsize)
+imsgbuf_set_maxsize(struct imsgbuf *imsgbuf, uint32_t max)
 {
-	if (maxsize < IMSG_HEADER_SIZE || maxsize & IMSG_FD_MARK) {
+	if (max > UINT32_MAX - IMSG_HEADER_SIZE) {
+		errno = ERANGE;
+		return (-1);
+	}
+	max += IMSG_HEADER_SIZE;
+	if (max & IMSG_FD_MARK) {
 		errno = EINVAL;
 		return (-1);
 	}
-	imsgbuf->maxsize = maxsize;
+	imsgbuf->maxsize = max;
 	return (0);
 }
 

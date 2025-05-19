@@ -105,7 +105,7 @@
 .Ft int
 .Fn imsgbuf_read "struct imsgbuf *imsgbuf"
 .Ft int
-.Fn imsgbuf_set_maxsize "struct imsgbuf *imsgbuf" "uint32_t maxsize"
+.Fn imsgbuf_set_maxsize "struct imsgbuf *imsgbuf" "uint32_t max"
 .Ft int
 .Fn imsgbuf_write "struct imsgbuf *imsgbuf"
 .In sys/uio.h
@@ -139,13 +139,9 @@ enables file descriptor passing in both directions for this
 .Fa imsgbuf .
 .Pp
 .Fn imsgbuf_set_maxsize
-changes the default maximum imsg size from
-.Dv MAX_IMSGSIZE
+changes the default maximum payload size
 to
-.Fa maxsize .
-.Fa maxsize
-must be bigger than
-.Dv IMSG_HEADER_SIZE .
+.Fa max .
 It returns 0 if successful and -1 on failure.
 .Pp
 The
