@@ -22,6 +22,7 @@
 #ifndef _IMSG_H_
 #define _IMSG_H_
 
+#include <sys/queue.h>
 #include <stddef.h>
 #include <stdint.h>
 
