@@ -141,6 +141,7 @@ struct exec_package {
 #define	EXEC_DESTR	0x0010		/* destructive ops performed */
 #define	EXEC_WXNEEDED	0x0020		/* executable will violate W^X */
 #define	EXEC_NOBTCFI	0x0040		/* no branch target CFI */
+#define	EXEC_PROFILE	0x0080		/* profiled binary */
 
 #ifdef _KERNEL
 /*

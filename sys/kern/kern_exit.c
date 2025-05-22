@@ -205,6 +205,7 @@ exit1(struct proc *p, int xexit, int xsig, int flags)
 	if ((p->p_flag & P_THREAD) == 0) {
 		if (pr->ps_flags & PS_PROFIL)
 			stopprofclock(pr);
+		prof_write(p);
 
 		sigio_freelist(&pr->ps_sigiolst);
 

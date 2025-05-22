@@ -662,6 +662,8 @@ typedef struct {
  * bump the version.
  */
 
+#define NT_OPENBSD_PROF		2
+
 #define NT_OPENBSD_PROCINFO	10
 #define NT_OPENBSD_AUXV		11
 

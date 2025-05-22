@@ -194,6 +194,8 @@ process_initialize(struct process *pr, struct proc *p)
 	/* new thread and new process */
 	KASSERT(p->p_ucred->cr_refcnt.r_refs >= 2);
 
+	prof_fork(pr);
+
 	LIST_INIT(&pr->ps_children);
 	LIST_INIT(&pr->ps_orphans);
 	LIST_INIT(&pr->ps_sigiolst);

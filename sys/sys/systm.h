@@ -251,6 +251,9 @@ void	cpu_startclock(void);
 void	startprofclock(struct process *);
 void	stopprofclock(struct process *);
 void	setstatclockrate(int);
+void	prof_fork(struct process *);
+void	prof_write(struct proc *);
+void	prof_exec(struct proc *);
 
 void	start_periodic_resettodr(void);
 void	stop_periodic_resettodr(void);

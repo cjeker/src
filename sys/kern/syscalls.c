@@ -1,4 +1,4 @@
-/*	$OpenBSD: syscalls.c,v 1.284 2025/02/17 13:10:56 mpi Exp $	*/
+/*	$OpenBSD$	*/
 
 /*
  * System call names.
@@ -56,7 +56,7 @@ const char *const syscallnames[] = {
 	"dup",			/* 41 = dup */
 	"fstatat",			/* 42 = fstatat */
 	"getegid",			/* 43 = getegid */
-	"profil",			/* 44 = profil */
+	"#44 (unimplemented oprofil)",		/* 44 = unimplemented oprofil */
 #ifdef KTRACE
 	"ktrace",			/* 45 = ktrace */
 #else
@@ -199,7 +199,7 @@ const char *const syscallnames[] = {
 	"pwritev",			/* 172 = pwritev */
 	"#173 (obsolete pad_pread)",		/* 173 = obsolete pad_pread */
 	"#174 (obsolete pad_pwrite)",		/* 174 = obsolete pad_pwrite */
-	"#175 (unimplemented ntp_gettime)",		/* 175 = unimplemented ntp_gettime */
+	"profil",			/* 175 = profil */
 	"#176 (unimplemented ntp_adjtime)",		/* 176 = unimplemented ntp_adjtime */
 	"#177 (unimplemented)",		/* 177 = unimplemented */
 	"#178 (unimplemented)",		/* 178 = unimplemented */

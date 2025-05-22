@@ -46,7 +46,8 @@ struct gmonhdr {
 	int	ncnt;		/* size of sample buffer (plus this header) */
 	int	version;	/* version number */
 	int	profrate;	/* profiling clock rate */
-	int	spare[3];	/* reserved */
+	int	totarc;		/* space used by arcs */
+	int	spare[2];	/* reserved */
 };
 #define GMONVERSION	0x00051879
 
@@ -136,6 +137,10 @@ struct gmonparam {
 	u_long		highpc;
 	u_long		textsize;
 	u_long		hashfraction;
+	void		*outbuf;
+	size_t		outbuflen;
+	void		*rawarcs;
+	int		dirfd;
 };
 
 /*
@@ -167,7 +172,6 @@ extern struct gmonparam _gmonparam;
 void	_mcleanup(void);
 void	_monstartup(u_long, u_long);
 void	moncontrol(int);
-void	monstartup(u_long, u_long);
 __END_DECLS
 
 #endif /* !_KERNEL */

@@ -441,6 +441,9 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 	 */
 	single_thread_set(p, SINGLE_EXIT);
 
+	/* Clear profiling state in new image */
+	prof_exec(p);
+
 	/*
 	 * Prepare vmspace for remapping. Note that uvmspace_exec can replace
 	 * ps_vmspace!
@@ -551,6 +554,11 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 		atomic_setbits_int(&p->p_p->ps_flags, PS_NOBTCFI);
 	else
 		atomic_clearbits_int(&p->p_p->ps_flags, PS_NOBTCFI);
+
+	if (pack.ep_flags & EXEC_PROFILE)
+		atomic_setbits_int(&p->p_p->ps_flags, PS_PROFILE);
+	else
+		atomic_clearbits_int(&p->p_p->ps_flags, PS_PROFILE);
 
 	atomic_setbits_int(&pr->ps_flags, PS_EXEC);
 	if (pr->ps_flags & PS_PPWAIT) {

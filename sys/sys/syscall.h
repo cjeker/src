@@ -1,4 +1,4 @@
-/*	$OpenBSD: syscall.h,v 1.282 2025/02/17 13:10:56 mpi Exp $	*/
+/*	$OpenBSD$	*/
 
 /*
  * System call numbers.
@@ -133,9 +133,6 @@
 
 /* syscall: "getegid" ret: "gid_t" args: */
 #define	SYS_getegid	43
-
-/* syscall: "profil" ret: "int" args: "caddr_t" "size_t" "u_long" "u_int" */
-#define	SYS_profil	44
 
 /* syscall: "ktrace" ret: "int" args: "const char *" "int" "int" "pid_t" */
 #define	SYS_ktrace	45
@@ -482,6 +479,9 @@
 
 				/* 173 is obsolete pad_pread */
 				/* 174 is obsolete pad_pwrite */
+/* syscall: "profil" ret: "int" args: "void *" "size_t" "size_t" "u_long" "u_int" "int" */
+#define	SYS_profil	175
+
 /* syscall: "setgid" ret: "int" args: "gid_t" */
 #define	SYS_setgid	181
 
