@@ -104,11 +104,13 @@ sched_init_cpu(struct cpu_info *ci)
 	 */
 	cpuset_init_cpu(ci);
 
-#ifdef __HAVE_CPU_TOPOLOGY
-	if (!sched_smt && ci->ci_smt_id > 0)
-		return;
-#endif
-	cpuset_add(&sched_all_cpus, ci);
+	/*
+	 * The boot processor does not go through sched_toidle()
+	 * also CPU_IS_PRIMARY does not work reliably so use the unit
+	 * number and assume that CPU0 is the boot processor.
+	 */
+	if (CPU_INFO_UNIT(ci) == 0)
+		cpuset_add(&sched_all_cpus, ci);
 }
 
 void
@@ -217,7 +219,8 @@ sched_exit(struct proc *p)
 void
 sched_toidle(void)
 {
-	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
+	struct cpu_info *ci = curcpu();
+	struct schedstate_percpu *spc = &ci->ci_schedstate;
 	struct proc *idle;
 
 #ifdef MULTIPROCESSOR
@@ -242,9 +245,17 @@ sched_toidle(void)
 	idle->p_stat = SRUN;
 
 	uvmexp.swtch++;
-	if (curproc != NULL)
+	if (curproc == NULL) {
+#ifdef __HAVE_CPU_TOPOLOGY
+		if (sched_smt || ci->ci_smt_id == 0)
+			cpuset_add(&sched_all_cpus, ci);
+#else
+		cpuset_add(&sched_all_cpus, ci);
+#endif
+	} else {
 		TRACEPOINT(sched, off__cpu, idle->p_tid + THREAD_PID_OFFSET,
 		    idle->p_p->ps_pid);
+	}
 	cpu_switchto(NULL, idle);
 	panic("cpu_switchto returned");
 }
@@ -410,10 +421,10 @@ sched_choosecpu_fork(struct proc *parent, int flags)
 		}
 	}
 
-	return (choice);
-#else
-	return (curcpu());
+	if (choice != NULL)
+		return (choice);
 #endif
+	return (curcpu());
 }
 
 struct cpu_info *
@@ -474,10 +485,10 @@ sched_choosecpu(struct proc *p)
 	else
 		sched_nomigrations++;
 
-	return (choice);
-#else
-	return (curcpu());
+	if (choice != NULL)
+		return (choice);
 #endif
+	return (curcpu());
 }
 
 /*
