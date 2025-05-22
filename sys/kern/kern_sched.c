@@ -50,7 +50,6 @@ struct cpuset sched_all_cpus;
 uint64_t sched_nmigrations;	/* Cpu migration counter */
 uint64_t sched_nomigrations;	/* Cpu no migration counter */
 uint64_t sched_noidle;		/* Times we didn't pick the idle task */
-uint64_t sched_stolen;		/* Times we stole proc from other cpus */
 uint64_t sched_choose;		/* Times we chose a cpu */
 uint64_t sched_wasidle;		/* Times we came out of idle */
 
@@ -356,7 +355,7 @@ again:
 		sched_noidle++;
 		if (p->p_stat != SRUN)
 			panic("thread %d not in SRUN: %d", p->p_tid, p->p_stat);
-	} else if ((p = sched_steal_proc(curcpu())) == NULL) {
+	} else {
 		p = spc->spc_idleproc;
 		if (p == NULL)
 			panic("no idleproc set on CPU%d",
@@ -483,63 +482,6 @@ sched_choosecpu(struct proc *p)
 		return (choice);
 #endif
 	return (curcpu());
-}
-
-/*
- * Attempt to steal a proc from some cpu.
- */
-struct proc *
-sched_steal_proc(struct cpu_info *self)
-{
-	struct proc *best = NULL;
-#ifdef MULTIPROCESSOR
-	struct schedstate_percpu *spc;
-	int bestcost = INT_MAX;
-	struct cpu_info *ci;
-	struct cpuset set;
-
-	KASSERT((self->ci_schedstate.spc_schedflags & SPCF_SHOULDHALT) == 0);
-
-	/* Don't steal if we don't want to schedule processes in this CPU. */
-	if (!cpuset_isset(&sched_all_cpus, self))
-		return (NULL);
-
-	cpuset_copy(&set, &sched_queued_cpus);
-
-	while ((ci = cpuset_first(&set)) != NULL) {
-		struct proc *p;
-		int queue;
-		int cost;
-
-		cpuset_del(&set, ci);
-
-		spc = &ci->ci_schedstate;
-
-		queue = ffs(spc->spc_whichqs) - 1;
-		TAILQ_FOREACH(p, &spc->spc_qs[queue], p_runq) {
-			if (p->p_flag & P_CPUPEG)
-				continue;
-
-			cost = sched_proc_to_cpu_cost(self, p);
-
-			if (best == NULL || cost < bestcost) {
-				best = p;
-				bestcost = cost;
-			}
-		}
-	}
-	if (best == NULL)
-		return (NULL);
-
-	TRACEPOINT(sched, steal, best->p_tid + THREAD_PID_OFFSET,
-	    best->p_p->ps_pid, CPU_INFO_UNIT(self));
-
-	remrunqueue(best);
-	best->p_cpu = self;
-
-	sched_stolen++;
-#endif
-	return (best);
 }
 
 #ifdef MULTIPROCESSOR
