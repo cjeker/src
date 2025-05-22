@@ -375,6 +375,11 @@ sleep_finish(uint64_t nsecs, int do_sleep)
 		panic("sleep_finish !SONPROC");
 #endif
 
+	/*
+	 * XXX spc_curpriority kind of requires a lock but meh.
+	 * Also this lowers the curprio so at worst a higher prio process
+	 * fails to run for a bit.
+	 */
 	p->p_cpu->ci_schedstate.spc_curpriority = p->p_usrpri;
 
 	/*
