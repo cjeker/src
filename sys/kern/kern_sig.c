@@ -1686,10 +1686,10 @@ proc_stop_finish(struct proc *p)
 	if (p->p_stat == SSTOP) {
 		p->p_ru.ru_nvcsw++;
 		mi_switch();
+	} else {
+		KASSERT(p->p_stat == SONPROC);
+		SCHED_UNLOCK();
 	}
-	KASSERT(p->p_stat == SONPROC);
-
-	SCHED_UNLOCK();
 	mtx_enter(&pr->ps_mtx);
 }
 

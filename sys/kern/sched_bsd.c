@@ -317,7 +317,6 @@ yield(void)
 	setrunqueue(p->p_cpu, p, p->p_usrpri);
 	p->p_ru.ru_nvcsw++;
 	mi_switch();
-	SCHED_UNLOCK();
 }
 
 /*
@@ -335,7 +334,6 @@ preempt(void)
 	setrunqueue(p->p_cpu, p, p->p_usrpri);
 	p->p_ru.ru_nivcsw++;
 	mi_switch();
-	SCHED_UNLOCK();
 }
 
 void
@@ -440,7 +438,6 @@ mi_switch(void)
 	if (hold_count)
 		__mp_acquire_count(&kernel_lock, hold_count);
 #endif
-	SCHED_LOCK();
 }
 
 /*

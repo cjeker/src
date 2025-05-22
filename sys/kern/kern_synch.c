@@ -406,6 +406,7 @@ sleep_finish(int timo, int do_sleep)
 	} else {
 		KASSERT(p->p_stat == SONPROC || p->p_stat == SSLEEP);
 		p->p_stat = SONPROC;
+		SCHED_UNLOCK();
 	}
 
 #ifdef DIAGNOSTIC
@@ -413,8 +414,12 @@ sleep_finish(int timo, int do_sleep)
 		panic("sleep_finish !SONPROC");
 #endif
 
+	/*
+	 * XXX spc_curpriority kind of requires a lock but meh.
+	 * Also this lowers the curprio so at worst a higher prio process
+	 * fails to run for a bit.
+	 */
 	p->p_cpu->ci_schedstate.spc_curpriority = p->p_usrpri;
-	SCHED_UNLOCK();
 
 	/*
 	 * Even though this belongs to the signal handling part of sleep,
@@ -672,7 +677,6 @@ sys_sched_yield(struct proc *p, void *v, register_t *retval)
 	setrunqueue(p->p_cpu, p, newprio);
 	p->p_ru.ru_nvcsw++;
 	mi_switch();
-	SCHED_UNLOCK();
 
 	return (0);
 }
