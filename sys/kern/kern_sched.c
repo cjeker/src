@@ -747,12 +747,10 @@ sched_barrier(struct cpu_info *ci)
  * Functions to manipulate cpu sets.
  */
 struct cpu_info *cpuset_infos[MAXCPUS];
-static struct cpuset cpuset_all;
 
 void
 cpuset_init_cpu(struct cpu_info *ci)
 {
-	cpuset_add(&cpuset_all, ci);
 	cpuset_infos[CPU_INFO_UNIT(ci)] = ci;
 }
 
@@ -781,12 +779,6 @@ cpuset_isset(struct cpuset *cs, struct cpu_info *ci)
 {
 	unsigned int num = CPU_INFO_UNIT(ci);
 	return (cs->cs_set[num/32] & (1U << (num % 32)));
-}
-
-void
-cpuset_add_all(struct cpuset *cs)
-{
-	cpuset_copy(cs, &cpuset_all);
 }
 
 void

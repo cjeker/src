@@ -641,7 +641,6 @@ void cpuset_clear(struct cpuset *);
 void cpuset_add(struct cpuset *, struct cpu_info *);
 void cpuset_del(struct cpuset *, struct cpu_info *);
 int cpuset_isset(struct cpuset *, struct cpu_info *);
-void cpuset_add_all(struct cpuset *);
 void cpuset_copy(struct cpuset *, struct cpuset *);
 void cpuset_union(struct cpuset *, struct cpuset *, struct cpuset *);
 void cpuset_intersection(struct cpuset *t, struct cpuset *, struct cpuset *);
