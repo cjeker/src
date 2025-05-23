@@ -136,6 +136,32 @@ sched_kthreads_create(void *v)
 	num++;
 }
 
+#ifdef MULTIPROCESSOR
+/* Remove all procs from the run queue and reinsert them on different CPUs. */
+static void
+sched_purge_queues(struct schedstate_percpu *spc)
+{
+	TAILQ_HEAD(prochead, proc)	pq = TAILQ_HEAD_INITIALIZER(pq);
+	struct proc *p;
+	int queue;
+
+	SCHED_LOCK();
+	for (queue = 0; queue < SCHED_NQS; queue++) {
+		while ((p = TAILQ_FIRST(&spc->spc_qs[queue]))) {
+			remrunqueue(p);
+			TAILQ_INSERT_TAIL(&pq, p, p_runq);
+		}
+	}
+
+	while ((p = TAILQ_FIRST(&pq))) {
+		TAILQ_REMOVE(&pq, p, p_runq);
+		setrunqueue(NULL, p, p->p_runpri);
+		KASSERT(p->p_cpu != curcpu() || p->p_flag & P_CPUPEG);
+	}
+	SCHED_UNLOCK();
+}
+#endif
+
 void
 sched_idle(void *v)
 {
@@ -177,6 +203,12 @@ sched_idle(void *v)
 				TAILQ_REMOVE(&spc->spc_deadproc, dead, p_runq);
 				exit2(dead);
 			}
+
+#ifdef MULTIPROCESSOR
+			if (__predict_false(spc->spc_schedflags &
+			    SPCF_SHOULDHALT))
+				sched_purge_queues(spc);
+#endif
 		}
 
 		splassert(IPL_NONE);
@@ -318,35 +350,10 @@ struct proc *
 sched_chooseproc(void)
 {
 	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
-	struct proc *p;
+	struct proc *p = NULL;
 	int queue;
 
 	SCHED_ASSERT_LOCKED();
-
-#ifdef MULTIPROCESSOR
-	if (spc->spc_schedflags & SPCF_SHOULDHALT) {
-		if (spc->spc_whichqs) {
-			for (queue = 0; queue < SCHED_NQS; queue++) {
-				while ((p = TAILQ_FIRST(&spc->spc_qs[queue]))) {
-					remrunqueue(p);
-					setrunqueue(NULL, p, p->p_runpri);
-					if (p->p_cpu == curcpu()) {
-						KASSERT(p->p_flag & P_CPUPEG);
-						goto again;
-					}
-				}
-			}
-		}
-		p = spc->spc_idleproc;
-		if (p == NULL)
-			panic("no idleproc set on CPU%d",
-			    CPU_INFO_UNIT(curcpu()));
-		p->p_stat = SRUN;
-		KASSERT(p->p_wchan == NULL);
-		return (p);
-	}
-again:
-#endif
 
 	if (spc->spc_whichqs) {
 		queue = ffs(spc->spc_whichqs) - 1;
@@ -355,14 +362,22 @@ again:
 		sched_noidle++;
 		if (p->p_stat != SRUN)
 			panic("thread %d not in SRUN: %d", p->p_tid, p->p_stat);
-	} else {
+	}
+
+#ifdef MULTIPROCESSOR
+	if (__predict_false(spc->spc_schedflags & SPCF_SHOULDHALT)) {
+		if (p != NULL && (p->p_flag & P_CPUPEG) == 0)
+			p = NULL;
+	}
+#endif
+
+	if (p == NULL) {
 		p = spc->spc_idleproc;
 		if (p == NULL)
 			panic("no idleproc set on CPU%d",
 			    CPU_INFO_UNIT(curcpu()));
 		p->p_stat = SRUN;
 	} 
-
 	KASSERT(p->p_wchan == NULL);
 	KASSERT(!ISSET(p->p_flag, P_INSCHED));
 	return (p);
