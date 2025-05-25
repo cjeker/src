@@ -286,6 +286,25 @@ uvm_uarea_free(struct proc *p)
 }
 
 /*
+ * uvm_purge: teardown a virtual address space.
+ *
+ * If multi-threaded, must be called by the last thread of a process.
+ */
+void
+uvm_purge(void)
+{
+	struct proc *p = curproc;
+	struct vmspace *vm = p->p_vmspace;
+
+	KERNEL_ASSERT_UNLOCKED();
+
+#ifdef __HAVE_PMAP_PURGE
+	pmap_purge(p);
+#endif
+	uvmspace_purge(vm);
+}
+
+/*
  * uvm_exit: exit a virtual address space
  */
 void
