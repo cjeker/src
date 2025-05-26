@@ -179,7 +179,7 @@ sched_idle(void *v)
 	p->p_cpu = ci;
 	atomic_setbits_int(&p->p_flag, P_CPUPEG);
 	next = sched_chooseproc();
-	mi_switch(next);
+	mi_switch(next, &sched_lock);
 
 	KASSERT(ci == curcpu());
 	KASSERT(curproc == spc->spc_idleproc);
@@ -191,7 +191,7 @@ sched_idle(void *v)
 			SCHED_LOCK();
 			p->p_stat = SSLEEP;
 			next = sched_chooseproc();
-			mi_switch(next);
+			mi_switch(next, &sched_lock);
 
 			while ((dead = TAILQ_FIRST(&spc->spc_deadproc))) {
 				TAILQ_REMOVE(&spc->spc_deadproc, dead, p_runq);
@@ -277,6 +277,8 @@ sched_toidle(void)
 	atomic_clearbits_int(&spc->spc_schedflags, SPCF_SWITCHCLEAR);
 
 	SCHED_LOCK();
+	spc->spc_mtx = &sched_lock;
+
 	idle = spc->spc_idleproc;
 	idle->p_stat = SRUN;
 
@@ -596,7 +598,7 @@ sched_peg_curproc(struct cpu_info *ci)
 	setrunqueue(ci, p, p->p_usrpri);
 	p->p_ru.ru_nvcsw++;
 	next = sched_chooseproc();
-	mi_switch(next);
+	mi_switch(next, &sched_lock);
 }
 
 void

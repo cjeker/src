@@ -404,7 +404,7 @@ sleep_finish(int timo, int do_sleep)
 		KASSERT(p->p_stat == SSLEEP || p->p_stat == SSTOP);
 		p->p_ru.ru_nvcsw++;
 		next = sched_chooseproc();
-		mi_switch(next);
+		mi_switch(next, &sched_lock);
 	} else {
 		KASSERT(p->p_stat == SONPROC || p->p_stat == SSLEEP);
 		p->p_stat = SONPROC;
@@ -679,7 +679,7 @@ sys_sched_yield(struct proc *p, void *v, register_t *retval)
 	setrunqueue(p->p_cpu, p, newprio);
 	p->p_ru.ru_nvcsw++;
 	next = sched_chooseproc();
-	mi_switch(next);
+	mi_switch(next, &sched_lock);
 
 	return (0);
 }
