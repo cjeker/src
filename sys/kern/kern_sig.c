@@ -1687,7 +1687,7 @@ proc_stop_finish(struct proc *p)
 		struct proc *next;
 		p->p_ru.ru_nvcsw++;
 		next = sched_chooseproc();
-		mi_switch(next);
+		mi_switch(next, &sched_lock);
 	} else {
 		KASSERT(p->p_stat == SONPROC);
 		SCHED_UNLOCK();
