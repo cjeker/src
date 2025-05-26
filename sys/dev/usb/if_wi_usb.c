@@ -1610,7 +1610,7 @@ void
 wi_usb_start_thread(void *arg)
 {
 	struct wi_usb_softc	*sc = arg;
-	kthread_create (wi_usb_thread, arg, NULL, sc->wi_usb_dev.dv_xname);
+	kthread_create(wi_usb_thread, arg, NULL, sc->wi_usb_dev.dv_xname);
 }
 
 void
@@ -1733,6 +1733,8 @@ wi_usb_thread(void *arg)
 	struct wi_usb_softc *sc = arg;
 	struct wi_usb_thread_info *wi_thread_info;
 	int s;
+
+	KERNEL_LOCK();
 
 	wi_thread_info = malloc(sizeof(*wi_thread_info), M_USBDEV, M_WAITOK);
 

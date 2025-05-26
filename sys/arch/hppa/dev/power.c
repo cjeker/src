@@ -143,6 +143,8 @@ power_thread_dr(void *v)
 	struct power_softc *sc = v;
 	u_int32_t r;
 
+	KERNEL_LOCK();
+
 	for (;;) {
 		mfcpu(DR0_PCXL_SHINT_EN, r);	/* XXX don't ask */
 		if (r & 0x80000000)
@@ -166,6 +168,8 @@ power_thread_reg(void *v)
 {
 	struct power_softc *sc = v;
 	u_int32_t r;
+
+	KERNEL_LOCK();
 
 	for (;;) {
 		__asm volatile("ldwas 0(%1), %0"

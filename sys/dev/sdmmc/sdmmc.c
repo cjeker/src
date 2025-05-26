@@ -240,6 +240,8 @@ sdmmc_task_thread(void *arg)
 	struct sdmmc_task *task;
 	int s;
 
+	KERNEL_LOCK();
+
 restart:
 	sdmmc_needs_discover(&sc->sc_dev);
 
