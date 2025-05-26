@@ -322,7 +322,7 @@ yield(void)
 	setrunqueue(p->p_cpu, p, p->p_usrpri);
 	p->p_ru.ru_nvcsw++;
 	next = sched_chooseproc();
-	mi_switch(next);
+	mi_switch(next, &sched_lock);
 }
 
 /*
@@ -340,11 +340,11 @@ preempt(void)
 	setrunqueue(p->p_cpu, p, p->p_usrpri);
 	p->p_ru.ru_nivcsw++;
 	next = sched_chooseproc();
-	mi_switch(next);
+	mi_switch(next, &sched_lock);
 }
 
 void
-mi_switch(struct proc *nextproc)
+mi_switch(struct proc *nextproc, struct mutex *mtx)
 {
 	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
 	struct proc *p = curproc;
@@ -355,7 +355,8 @@ mi_switch(struct proc *nextproc)
 
 	KASSERT(p->p_stat != SONPROC);
 
-	SCHED_ASSERT_LOCKED();
+	MUTEX_ASSERT_LOCKED(mtx);
+	spc->spc_mtx = mtx;
 
 #ifdef MULTIPROCESSOR
 	/*
@@ -387,7 +388,7 @@ mi_switch(struct proc *nextproc)
 	atomic_clearbits_int(&spc->spc_schedflags, SPCF_SWITCHCLEAR);
 
 	/* preserve old IPL level so we can switch back to that */
-	oldipl = MUTEX_OLDIPL(&sched_lock);
+	oldipl = MUTEX_OLDIPL(spc->spc_mtx);
 
 	if (p != nextproc) {
 		uvmexp.swtch++;
@@ -402,16 +403,6 @@ mi_switch(struct proc *nextproc)
 
 	clear_resched(curcpu());
 
-	SCHED_ASSERT_LOCKED();
-
-	/* Restore proc's IPL. */
-	MUTEX_OLDIPL(&sched_lock) = oldipl;
-	SCHED_UNLOCK();
-
-	SCHED_ASSERT_UNLOCKED();
-
-	assertwaitok();
-	smr_idle();
 
 	/*
 	 * We're running again; record our new start time.  We might
@@ -420,6 +411,14 @@ mi_switch(struct proc *nextproc)
 	 */
 	KASSERT(p->p_cpu == curcpu());
 	spc = &p->p_cpu->ci_schedstate;
+
+	/* Restore proc's IPL. */
+	MUTEX_OLDIPL(spc->spc_mtx) = oldipl;
+	mtx_leave(spc->spc_mtx);
+	spc->spc_mtx = NULL;
+
+	assertwaitok();
+	smr_idle();
 
 	/* Start any optional clock interrupts needed by the thread. */
 	if (ISSET(p->p_p->ps_flags, PS_ITIMER)) {
