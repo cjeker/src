@@ -317,12 +317,13 @@ decay_aftersleep(uint32_t estcpu, uint32_t slptime)
 void
 yield(void)
 {
-	struct proc *p = curproc;
+	struct proc *p = curproc, *next;
 
 	SCHED_LOCK();
 	setrunqueue(p->p_cpu, p, p->p_usrpri);
 	p->p_ru.ru_nvcsw++;
-	mi_switch();
+	next = sched_chooseproc();
+	mi_switch(next);
 }
 
 /*
@@ -334,20 +335,20 @@ yield(void)
 void
 preempt(void)
 {
-	struct proc *p = curproc;
+	struct proc *p = curproc, *next;
 
 	SCHED_LOCK();
 	setrunqueue(p->p_cpu, p, p->p_usrpri);
 	p->p_ru.ru_nivcsw++;
-	mi_switch();
+	next = sched_chooseproc();
+	mi_switch(next);
 }
 
 void
-mi_switch(void)
+mi_switch(struct proc *nextproc)
 {
 	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
 	struct proc *p = curproc;
-	struct proc *nextproc;
 	int oldipl;
 #ifdef MULTIPROCESSOR
 	int hold_count;
@@ -385,8 +386,6 @@ mi_switch(void)
 	 * scheduling flags.
 	 */
 	atomic_clearbits_int(&spc->spc_schedflags, SPCF_SWITCHCLEAR);
-
-	nextproc = sched_chooseproc();
 
 	/* preserve old IPL level so we can switch back to that */
 	oldipl = MUTEX_OLDIPL(&sched_lock);
