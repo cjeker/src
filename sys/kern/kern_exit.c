@@ -455,10 +455,6 @@ reaper(void *arg)
 {
 	struct proc *p;
 
-	KERNEL_UNLOCK();
-
-	SCHED_ASSERT_UNLOCKED();
-
 	for (;;) {
 		mtx_enter(&deadproc_mutex);
 		while ((p = TAILQ_FIRST(&deadproc)) == NULL)

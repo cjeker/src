@@ -413,6 +413,8 @@ pcic_event_thread(void *arg)
 	int s;
 	struct pcic_softc *sc = (struct pcic_softc *)(h->ph_parent);
 
+	KERNEL_LOCK();
+
 	while (h->shutdown == 0) {
 		s = splhigh();
 		if ((pe = SIMPLEQ_FIRST(&h->events)) == NULL) {
