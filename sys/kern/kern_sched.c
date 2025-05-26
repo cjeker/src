@@ -165,7 +165,7 @@ void
 sched_idle(void *v)
 {
 	struct schedstate_percpu *spc;
-	struct proc *p = curproc;
+	struct proc *p = curproc, *next;
 	struct cpu_info *ci = v;
 
 	spc = &ci->ci_schedstate;
@@ -178,18 +178,20 @@ sched_idle(void *v)
 	p->p_stat = SSLEEP;
 	p->p_cpu = ci;
 	atomic_setbits_int(&p->p_flag, P_CPUPEG);
-	mi_switch();
+	next = sched_chooseproc();
+	mi_switch(next);
 
 	KASSERT(ci == curcpu());
 	KASSERT(curproc == spc->spc_idleproc);
 
 	while (1) {
 		while (!cpu_is_idle(curcpu())) {
-			struct proc *dead;
+			struct proc *dead, *next;
 
 			SCHED_LOCK();
 			p->p_stat = SSLEEP;
-			mi_switch();
+			next = sched_chooseproc();
+			mi_switch(next);
 
 			while ((dead = TAILQ_FIRST(&spc->spc_deadproc))) {
 				TAILQ_REMOVE(&spc->spc_deadproc, dead, p_runq);
@@ -587,13 +589,14 @@ sched_proc_to_cpu_cost(struct cpu_info *ci, struct proc *p)
 void
 sched_peg_curproc(struct cpu_info *ci)
 {
-	struct proc *p = curproc;
+	struct proc *p = curproc, *next;
 
 	SCHED_LOCK();
 	atomic_setbits_int(&p->p_flag, P_CPUPEG);
 	setrunqueue(ci, p, p->p_usrpri);
 	p->p_ru.ru_nvcsw++;
-	mi_switch();
+	next = sched_chooseproc();
+	mi_switch(next);
 }
 
 void
