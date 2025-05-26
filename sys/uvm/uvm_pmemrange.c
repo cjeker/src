@@ -2202,8 +2202,6 @@ uvm_pagezero_thread(void *arg)
 	/* Run at the lowest possible priority. */
 	curproc->p_p->ps_nice = NZERO + PRIO_MAX;
 
-	KERNEL_UNLOCK();
-
 	TAILQ_INIT(&pgl);
 	for (;;) {
 		uvm_lock_fpageq();
