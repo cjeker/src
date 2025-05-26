@@ -4650,6 +4650,8 @@ sr_rebuild_thread(void *arg)
 {
 	struct sr_discipline	*sd = arg;
 
+	KERNEL_LOCK();
+
 	DNPRINTF(SR_D_REBUILD, "%s: %s rebuild thread started\n",
 	    DEVNAME(sd->sd_sc), sd->sd_meta->ssd_devname);
 

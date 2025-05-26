@@ -549,8 +549,6 @@ uvm_km_thread(void *arg)
 	int flags;
 	struct uvm_km_free_page *fp = NULL;
 
-	KERNEL_UNLOCK();
-
 	for (;;) {
 		mtx_enter(&uvm_km_pages.mtx);
 		if (uvm_km_pages.free >= uvm_km_pages.lowat &&

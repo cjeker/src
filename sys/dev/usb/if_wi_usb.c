@@ -1734,6 +1734,8 @@ wi_usb_thread(void *arg)
 	struct wi_usb_thread_info *wi_thread_info;
 	int s;
 
+	KERNEL_LOCK();
+
 	wi_thread_info = malloc(sizeof(*wi_thread_info), M_USBDEV, M_WAITOK);
 
 	/*
