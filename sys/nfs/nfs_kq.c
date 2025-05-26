@@ -95,6 +95,8 @@ nfs_kqpoll(void *arg)
 	u_quad_t osize;
 	int error;
 
+	KERNEL_LOCK();
+
 	for(;;) {
 		rw_enter_write(&nfskevq_lock);
 		SLIST_FOREACH(ke, &kevlist, kev_link) {

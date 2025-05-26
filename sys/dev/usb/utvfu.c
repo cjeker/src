@@ -1219,6 +1219,8 @@ utvfu_as_bulk_thread(void *arg)
 	usbd_status error;
 	uint32_t actlen;
 
+	KERNEL_LOCK();
+
 	DPRINTF(1, "%s %s\n", DEVNAME(sc), __func__);
 
 	iface = &sc->sc_audio.iface;
