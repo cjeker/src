@@ -45,22 +45,6 @@ struct kargs {
 	void *arg;
 };
 
-static void
-kthread_start(void *v)
-{
-	struct kargs *kargs = v;
-	void (*func)(void *);
-	void *arg;
-
-	KERNEL_LOCK();
-
-	func = kargs->func;
-	arg = kargs->arg;
-	free(kargs, M_TEMP, sizeof(*kargs));
-
-	(*func)(arg);
-}
-
 /*
  * Fork a kernel thread.  Any process can request this to be done.
  * The VM space and limits, etc. will be shared with proc0.
@@ -71,16 +55,8 @@ kthread_create(void (*func)(void *), void *arg,
 {
 	struct proc *p;
 	int error;
-	struct kargs *kargs;
 
 	KERNEL_LOCK();
-
-	kargs = malloc(sizeof(*kargs), M_TEMP, M_NOWAIT|M_ZERO);
-	if (kargs == NULL)
-		panic("unable to allocate kthread args");
-
-	kargs->func = func;
-	kargs->arg = arg;
 
 	/*
 	 * First, create the new process.  Share the memory, file
@@ -88,7 +64,7 @@ kthread_create(void (*func)(void *), void *arg,
 	 * parent to wait for.
 	 */
 	error = fork1(&proc0, FORK_SHAREVM|FORK_SHAREFILES|FORK_NOZOMBIE|
-	    FORK_SYSTEM, kthread_start, kargs, NULL, &p);
+	    FORK_SYSTEM, func, arg, NULL, &p);
 	if (error) {
 		KERNEL_UNLOCK();
 		return (error);
@@ -112,6 +88,8 @@ kthread_create(void (*func)(void *), void *arg,
 void
 kthread_exit(int ecode)
 {
+	/* may be called without KERNEL_LOCK so grab it here again */
+	KERNEL_LOCK();
 
 	/*
 	 * XXX What do we do with the exit code?  Should we even bother

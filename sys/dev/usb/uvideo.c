@@ -2428,6 +2428,8 @@ uvideo_vs_start_bulk_thread(void *arg)
 	usbd_status error;
 	int size;
 
+	KERNEL_LOCK();
+
 	usbd_ref_incr(sc->sc_udev);
 	while (sc->sc_vs_cur->bulk_running) {
 		size = UGETDW(sc->sc_desc_probe.dwMaxPayloadTransferSize);

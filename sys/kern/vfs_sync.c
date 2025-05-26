@@ -133,6 +133,8 @@ syncer_thread(void *arg)
 	struct vnode *vp;
 	int s;
 
+	KERNEL_LOCK();
+
 	for (;;) {
 		start = getnsecuptime();
 
