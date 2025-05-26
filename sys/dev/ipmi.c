@@ -1510,6 +1510,8 @@ ipmi_poll_thread(void *arg)
 	struct ipmi_softc	*sc = thread->sc;
 	u_int16_t		rec;
 
+	KERNEL_LOCK();
+
 	/* Scan SDRs, add sensors */
 	for (rec = 0; rec != 0xFFFF;) {
 		if (get_sdr(sc, rec, &rec)) {
