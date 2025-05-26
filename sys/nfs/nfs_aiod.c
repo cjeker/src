@@ -74,6 +74,8 @@ nfs_aiod(void *arg)
 	struct nfsmount	*nmp;
 	struct buf	*bp;
 
+	KERNEL_LOCK();
+
 	aiod = malloc(sizeof(*aiod), M_TEMP, M_WAITOK|M_ZERO);
 	mtx_enter(&nfs_aiodl_mtx);
 	LIST_INSERT_HEAD(&nfs_aiods_all, aiod, nad_all);

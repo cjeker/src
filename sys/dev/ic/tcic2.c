@@ -461,6 +461,8 @@ tcic_event_thread(void *arg)
 	struct tcic_event *pe;
 	int s;
 
+	KERNEL_LOCK();
+
 	while (h->shutdown == 0) {
 		s = splhigh();
 		if ((pe = SIMPLEQ_FIRST(&h->events)) == NULL) {

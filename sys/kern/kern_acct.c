@@ -311,6 +311,8 @@ acct_thread(void *arg)
 	struct statfs sb;
 	struct proc *p = curproc;
 
+	KERNEL_LOCK();
+
 	rw_enter_write(&acct_lock);
 	for (;;) {
 		if (savacctp != NULL) {

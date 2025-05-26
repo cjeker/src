@@ -852,7 +852,7 @@ softclock_thread(void *arg)
 	struct cpu_info *ci;
 	int s;
 
-	KERNEL_ASSERT_LOCKED();
+	KERNEL_LOCK();
 
 	/* Be conservative for the moment */
 	CPU_INFO_FOREACH(cii, ci) {
@@ -871,9 +871,6 @@ softclock_thread(void *arg)
 void
 softclock_thread_mp(void *arg)
 {
-	KERNEL_ASSERT_LOCKED();
-	KERNEL_UNLOCK();
-
 	softclock_thread_run(&timeout_ctx_proc_mp);
 }
 #endif /* MULTIPROCESSOR */

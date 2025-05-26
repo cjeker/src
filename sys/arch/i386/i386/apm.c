@@ -902,6 +902,8 @@ apm_thread(void *v)
 {
 	struct apm_softc *sc = v;
 
+	KERNEL_LOCK();
+
 	for (;;) {
 		rw_enter_write(&sc->sc_lock);
 		(void) apm_periodic_check(sc);

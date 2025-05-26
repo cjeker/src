@@ -218,6 +218,8 @@ uvm_pageout(void *arg)
 	struct uvm_pmalloc *pma;
 	int shortage, inactive_shortage;
 
+	KERNEL_LOCK();
+
 	/* ensure correct priority and set paging parameters... */
 	uvm.pagedaemon_proc = curproc;
 	(void) spl0();
@@ -305,7 +307,6 @@ uvm_pageout(void *arg)
 
 		sched_pause(yield);
 	}
-	/*NOTREACHED*/
 }
 
 
@@ -319,7 +320,6 @@ uvm_aiodone_daemon(void *arg)
 	struct buf *bp, *nbp;
 
 	uvm.aiodoned_proc = curproc;
-	KERNEL_UNLOCK();
 
 	for (;;) {
 		/*

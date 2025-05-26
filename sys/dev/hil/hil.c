@@ -446,6 +446,8 @@ hil_thread(void *arg)
 	struct hil_softc *sc = arg;
 	int s;
 
+	KERNEL_LOCK();
+
 	for (;;) {
 		s = splhil();
 		if (sc->sc_pending == 0) {

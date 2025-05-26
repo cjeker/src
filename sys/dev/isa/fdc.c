@@ -183,6 +183,8 @@ fdcattach_deferred(void *arg)
 	struct fdc_attach_args fa;
 	int type;
 
+	KERNEL_LOCK();
+
 #if defined(__i386__) || defined(__amd64__)
 	/*
 	 * The NVRAM info only tells us about the first two disks on the

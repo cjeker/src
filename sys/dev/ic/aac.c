@@ -551,6 +551,8 @@ aac_command_thread(void *arg)
 	u_int32_t fib_size;
 	int size, retval;
 
+	KERNEL_LOCK();
+
 	AAC_DPRINTF(AAC_D_THREAD, ("%s: aac_command_thread: starting\n",
 	    sc->aac_dev.dv_xname));
 	AAC_LOCK_ACQUIRE(&sc->aac_io_lock);

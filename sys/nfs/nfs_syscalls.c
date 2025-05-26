@@ -600,6 +600,8 @@ nfssvc_iod(void *arg)
 	struct vnode *vp;
 	int error = 0, s, bufcount;
 
+	KERNEL_LOCK();
+
 	bufcount = MIN(256, bcstats.kvaslots / 8);
 	bufcount = MIN(bufcount, bcstats.numbufs / 8);
 

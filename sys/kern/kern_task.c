@@ -427,8 +427,8 @@ taskq_thread(void *xtq)
 	struct task work;
 	int last;
 
-	if (ISSET(tq->tq_flags, TASKQ_MPSAFE))
-		KERNEL_UNLOCK();
+	if (!ISSET(tq->tq_flags, TASKQ_MPSAFE))
+		KERNEL_LOCK();
 
 	mtx_enter(&tq->tq_mtx);
 	SLIST_INSERT_HEAD(&tq->tq_threads, &self, tt_entry);
@@ -453,9 +453,6 @@ taskq_thread(void *xtq)
 	SLIST_REMOVE(&tq->tq_threads, &self, taskq_thread, tt_entry);
 	last = (--tq->tq_running == 0);
 	mtx_leave(&tq->tq_mtx);
-
-	if (ISSET(tq->tq_flags, TASKQ_MPSAFE))
-		KERNEL_LOCK();
 
 	if (last)
 		wakeup_one(&tq->tq_running);

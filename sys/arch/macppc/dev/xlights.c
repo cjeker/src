@@ -235,6 +235,8 @@ xlights_theosDOT(void *v)
 	int ledpos, ledpos_high, ledpos_med, ledpos_dim;
 	uint32_t val;
 
+	KERNEL_LOCK();
+
 	while (1) {
 		/*
 		 * ldavg 0  - .5 sec ->  (8192 / 16)

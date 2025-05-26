@@ -274,6 +274,8 @@ kthread_func(void *arg)
 	struct kthread *thread = arg;
 	int ret;
 
+	KERNEL_LOCK();
+
 	ret = thread->func(thread->data);
 	thread->flags |= KTHREAD_STOPPED;
 	wakeup(thread);
@@ -319,7 +321,6 @@ kthread_destroy_worker(struct kthread_worker *worker)
 {
 	taskq_destroy(worker->tq);
 	free(worker, M_DRM, sizeof(*worker));
-	
 }
 
 void

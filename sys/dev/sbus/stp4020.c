@@ -286,6 +286,8 @@ stp4020_event_thread(void *arg)
 	int s, sense;
 	unsigned int socket;
 
+	KERNEL_LOCK();
+
 	for (;;) {
 		struct stp4020_socket *h;
 

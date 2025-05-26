@@ -392,6 +392,8 @@ usb_task_thread(void *arg)
 	struct usb_task *task;
 	int s;
 
+	KERNEL_LOCK();
+
 	DPRINTF(("usb_task_thread: start\n"));
 
 	s = splusb();
@@ -437,6 +439,8 @@ usb_abort_task_thread(void *arg)
 {
 	struct usb_task *task;
 	int s;
+
+	KERNEL_LOCK();
 
 	DPRINTF(("usb_xfer_abort_thread: start\n"));
 
