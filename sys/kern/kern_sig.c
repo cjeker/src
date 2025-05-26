@@ -1684,8 +1684,10 @@ proc_stop_finish(struct proc *p)
 
 	atomic_clearbits_int(&p->p_flag, P_INSCHED);
 	if (p->p_stat == SSTOP) {
+		struct proc *next;
 		p->p_ru.ru_nvcsw++;
-		mi_switch();
+		next = sched_chooseproc();
+		mi_switch(next);
 	} else {
 		KASSERT(p->p_stat == SONPROC);
 		SCHED_UNLOCK();
