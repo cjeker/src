@@ -454,6 +454,7 @@ void
 setrunnable(struct proc *p)
 {
 	struct process *pr = p->p_p;
+	struct cpu_info *ci;
 	u_char prio;
 
 	SCHED_ASSERT_LOCKED();
@@ -479,7 +480,8 @@ setrunnable(struct proc *p)
 				p->p_stat = SONPROC;
 			return;
 		}
-		setrunqueue(NULL, p, prio);
+		ci = sched_choosecpu(p);
+		setrunqueue(ci, p, prio);
 		break;
 	case SSLEEP:
 		prio = p->p_slppri;
@@ -489,7 +491,8 @@ setrunnable(struct proc *p)
 		/* if not yet asleep, don't add to runqueue */
 		if (ISSET(p->p_flag, P_INSCHED))
 			return;
-		setrunqueue(NULL, p, prio);
+		ci = sched_choosecpu(p);
+		setrunqueue(ci, p, prio);
 		break;
 	}
 	if (p->p_slptime > 1) {

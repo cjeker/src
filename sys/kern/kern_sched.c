@@ -142,6 +142,7 @@ static void
 sched_purge_queues(struct schedstate_percpu *spc)
 {
 	TAILQ_HEAD(prochead, proc)	pq = TAILQ_HEAD_INITIALIZER(pq);
+	struct cpu_info *ci;
 	struct proc *p;
 	int queue;
 
@@ -155,7 +156,9 @@ sched_purge_queues(struct schedstate_percpu *spc)
 
 	while ((p = TAILQ_FIRST(&pq))) {
 		TAILQ_REMOVE(&pq, p, p_runq);
-		setrunqueue(NULL, p, p->p_runpri);
+
+		ci = sched_choosecpu(p);
+		setrunqueue(ci, p, p->p_runpri);
 		KASSERT(p->p_cpu != curcpu() || p->p_flag & P_CPUPEG);
 	}
 	SCHED_UNLOCK();
@@ -298,9 +301,6 @@ setrunqueue(struct cpu_info *ci, struct proc *p, uint8_t prio)
 {
 	struct schedstate_percpu *spc;
 	int queue = prio >> 2;
-
-	if (ci == NULL)
-		ci = sched_choosecpu(p);
 
 	KASSERT(ci != NULL);
 	SCHED_ASSERT_LOCKED();
