@@ -373,6 +373,8 @@ onewire_thread(void *arg)
 {
 	struct onewire_softc *sc = arg;
 
+	KERNEL_LOCK();
+
 	while (!sc->sc_dying) {
 		onewire_scan(sc);
 		if (sc->sc_flags & ONEWIRE_NO_PERIODIC_SCAN)

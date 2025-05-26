@@ -86,9 +86,6 @@ smr_thread(void *arg)
 	struct smr_entry *smr;
 	unsigned long count;
 
-	KERNEL_ASSERT_LOCKED();
-	KERNEL_UNLOCK();
-
 	memset(&loglast, 0, sizeof(loglast));
 	SIMPLEQ_INIT(&deferred);
 
