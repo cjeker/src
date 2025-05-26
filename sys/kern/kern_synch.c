@@ -361,9 +361,11 @@ sleep_finish(uint64_t nsecs, int do_sleep)
 	atomic_clearbits_int(&p->p_flag, P_INSCHED);
 
 	if (do_sleep) {
+		struct proc *next;
 		KASSERT(p->p_stat == SSLEEP || p->p_stat == SSTOP);
 		p->p_ru.ru_nvcsw++;
-		mi_switch();
+		next = sched_chooseproc();
+		mi_switch(next);
 	} else {
 		KASSERT(p->p_stat == SONPROC || p->p_stat == SSLEEP);
 		p->p_stat = SONPROC;
@@ -615,7 +617,7 @@ wakeup(const volatile void *chan)
 int
 sys_sched_yield(struct proc *p, void *v, register_t *retval)
 {
-	struct proc *q;
+	struct proc *q, *next;
 	uint8_t newprio;
 
 	/*
@@ -632,7 +634,8 @@ sys_sched_yield(struct proc *p, void *v, register_t *retval)
 	SCHED_LOCK();
 	setrunqueue(p->p_cpu, p, newprio);
 	p->p_ru.ru_nvcsw++;
-	mi_switch();
+	next = sched_chooseproc();
+	mi_switch(next);
 
 	return (0);
 }
