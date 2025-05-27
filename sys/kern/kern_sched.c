@@ -87,6 +87,8 @@ sched_init_cpu(struct cpu_info *ci)
 
 	spc->spc_idleproc = NULL;
 
+	mtx_init(&spc->spc_sched_lock, IPL_SCHED);
+
 	clockintr_bind(&spc->spc_itimer, ci, itimer_update, NULL);
 	clockintr_bind(&spc->spc_profclock, ci, profclock, NULL);
 	clockintr_bind(&spc->spc_roundrobin, ci, roundrobin, NULL);
@@ -135,29 +137,32 @@ sched_kthreads_create(void *v)
 #ifdef MULTIPROCESSOR
 /* Remove all procs from the run queue and reinsert them on different CPUs. */
 static void
-sched_purge_queues(struct schedstate_percpu *spc)
+sched_purge_queues(struct cpu_info *ci)
 {
 	TAILQ_HEAD(prochead, proc)	pq = TAILQ_HEAD_INITIALIZER(pq);
-	struct cpu_info *ci;
+	struct schedstate_percpu *spc;
 	struct proc *p;
 	int queue;
 
-	SCHED_LOCK();
+	spc = &ci->ci_schedstate;
+	sched_cpu_lock(ci);
 	for (queue = 0; queue < SCHED_NQS; queue++) {
 		while ((p = TAILQ_FIRST(&spc->spc_qs[queue]))) {
 			remrunqueue(p);
 			TAILQ_INSERT_TAIL(&pq, p, p_runq);
 		}
 	}
+	sched_cpu_unlock(ci);
 
 	while ((p = TAILQ_FIRST(&pq))) {
 		TAILQ_REMOVE(&pq, p, p_runq);
 
 		ci = sched_choosecpu(p);
+		sched_cpu_lock(ci);
 		setrunqueue(ci, p, p->p_runpri);
+		sched_cpu_unlock(ci);
 		KASSERT(p->p_cpu != curcpu() || p->p_flag & P_CPUPEG);
 	}
-	SCHED_UNLOCK();
 }
 #endif
 
@@ -167,6 +172,7 @@ sched_idle(void *v)
 	struct schedstate_percpu *spc;
 	struct proc *p = curproc, *next;
 	struct cpu_info *ci = v;
+	struct mutex *mtx;
 
 	spc = &ci->ci_schedstate;
 
@@ -174,24 +180,24 @@ sched_idle(void *v)
 	 * First time we enter here, we're not supposed to idle,
 	 * just go away for a while.
 	 */
-	SCHED_LOCK();
+	mtx = sched_cpu_lock(ci);
 	p->p_stat = SSLEEP;
 	p->p_cpu = ci;
 	atomic_setbits_int(&p->p_flag, P_CPUPEG);
 	next = sched_chooseproc();
-	mi_switch(next, &sched_lock);
+	mi_switch(next, mtx);
 
 	KASSERT(ci == curcpu());
 	KASSERT(curproc == spc->spc_idleproc);
 
 	while (1) {
-		while (!cpu_is_idle(curcpu())) {
+		while (spc->spc_whichqs != 0) {
 			struct proc *dead, *next;
 
-			SCHED_LOCK();
+			mtx = sched_cpu_lock(ci);
 			p->p_stat = SSLEEP;
 			next = sched_chooseproc();
-			mi_switch(next, &sched_lock);
+			mi_switch(next, mtx);
 
 			while ((dead = TAILQ_FIRST(&spc->spc_deadproc))) {
 				TAILQ_REMOVE(&spc->spc_deadproc, dead, p_runq);
@@ -201,7 +207,7 @@ sched_idle(void *v)
 #ifdef MULTIPROCESSOR
 			if (__predict_false(spc->spc_schedflags &
 			    SPCF_SHOULDHALT))
-				sched_purge_queues(spc);
+				sched_purge_queues(ci);
 #endif
 		}
 
@@ -313,7 +319,7 @@ setrunqueue(struct cpu_info *ci, struct proc *p, uint8_t prio)
 	int queue = prio >> 2;
 
 	KASSERT(ci != NULL);
-	SCHED_ASSERT_LOCKED();
+	SCHED_CPU_ASSERT_LOCKED(ci);
 	KASSERT(p->p_wchan == NULL);
 	KASSERT(!ISSET(p->p_flag, P_INSCHED));
 
@@ -342,7 +348,8 @@ remrunqueue(struct proc *p)
 	struct schedstate_percpu *spc;
 	int queue = p->p_runpri >> 2;
 
-	SCHED_ASSERT_LOCKED();
+	SCHED_CPU_ASSERT_LOCKED(p->p_cpu);
+	KASSERT(p->p_stat == SRUN);
 	spc = &p->p_cpu->ci_schedstate;
 	spc->spc_nrun--;
 	TRACEPOINT(sched, dequeue, p->p_tid + THREAD_PID_OFFSET,
@@ -363,7 +370,7 @@ sched_chooseproc(void)
 	struct proc *p = NULL;
 	int queue;
 
-	SCHED_ASSERT_LOCKED();
+	SCHED_CPU_ASSERT_LOCKED(curcpu());
 
 	if (spc->spc_whichqs) {
 		queue = ffs(spc->spc_whichqs) - 1;
@@ -592,13 +599,32 @@ void
 sched_peg_curproc(struct cpu_info *ci)
 {
 	struct proc *p = curproc, *next;
+	struct mutex *mymtx, *omtx;
+	int ipl;
 
-	SCHED_LOCK();
+	if (curcpu() == ci) {
+		omtx = sched_cpu_lock(ci);
+		mymtx = NULL;
+	} else if (CPU_INFO_UNIT(curcpu()) < CPU_INFO_UNIT(ci)) {
+		mymtx = sched_cpu_lock(curcpu());
+		omtx = sched_cpu_lock(ci);
+		/* swap IPL since the locks are released in reverse order */
+		ipl = MUTEX_OLDIPL(mymtx);
+		MUTEX_OLDIPL(mymtx) = MUTEX_OLDIPL(omtx);
+		MUTEX_OLDIPL(omtx) = ipl;
+	} else {
+		omtx = sched_cpu_lock(ci);
+		mymtx = sched_cpu_lock(curcpu());
+	}
+
 	atomic_setbits_int(&p->p_flag, P_CPUPEG);
 	setrunqueue(ci, p, p->p_usrpri);
+
 	p->p_ru.ru_nvcsw++;
 	next = sched_chooseproc();
-	mi_switch(next, &sched_lock);
+	if (mymtx != NULL)
+		mtx_leave(mymtx);
+	mi_switch(next, omtx);
 }
 
 void
