@@ -664,6 +664,22 @@ tu_leave(struct tusage *tu, unsigned int gen)
 	pc_sprod_leave(&tu->tu_pcl, gen);
 }
 
+static inline struct mutex *
+sched_cpu_lock(struct cpu_info *ci)
+{
+	struct mutex *mtx = &ci->ci_schedstate.spc_sched_lock;
+	mtx_enter(mtx);
+	return mtx;
+}
+
+static inline void
+sched_cpu_unlock(struct cpu_info *ci)
+{
+	struct mutex *mtx = &ci->ci_schedstate.spc_sched_lock;
+	mtx_leave(mtx);
+}
+
+
 #endif	/* _KERNEL */
 #endif	/* !_SYS_PROC_H_ */
 
