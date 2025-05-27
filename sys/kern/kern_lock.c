@@ -349,13 +349,11 @@ int
 mtx_enter_try(struct mutex *mtx)
 {
 	if (mtx_do_enter_try(mtx) == 1) {
-		LLTRACE_CPU(ci, lltrace_lock, mtx, LLTRACE_LK_MTX,
-		    LLTRACE_LK_I_EXCL,
+		LLTRACE(lltrace_lock, mtx, LLTRACE_LK_MTX, LLTRACE_LK_I_EXCL,
 		    (unsigned long)__builtin_return_address(0));
 		return (1);
 	} else {
-		LLTRACE_CPU(ci, lltrace_lock, mtx, LLTRACE_LK_MTX,
-		    LLTRACE_LK_I_FAIL,
+		LLTRACE(lltrace_lock, mtx, LLTRACE_LK_MTX, LLTRACE_LK_I_FAIL,
 		    (unsigned long)__builtin_return_address(0));
 		return (0);
 	}
