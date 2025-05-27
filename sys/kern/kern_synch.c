@@ -364,7 +364,9 @@ sleep_finish(uint64_t nsecs, int do_sleep)
 		struct proc *next;
 		KASSERT(p->p_stat == SSLEEP || p->p_stat == SSTOP);
 		p->p_ru.ru_nvcsw++;
+		sched_cpu_lock(curcpu());
 		next = sched_chooseproc();
+		sched_cpu_unlock(curcpu());
 		mi_switch(next, &sched_lock);
 	} else {
 		KASSERT(p->p_stat == SONPROC || p->p_stat == SSLEEP);
@@ -618,6 +620,7 @@ int
 sys_sched_yield(struct proc *p, void *v, register_t *retval)
 {
 	struct proc *q, *next;
+	struct mutex *mtx;
 	uint8_t newprio;
 
 	/*
@@ -631,11 +634,11 @@ sys_sched_yield(struct proc *p, void *v, register_t *retval)
 		newprio = max(newprio, q->p_runpri);
 	mtx_leave(&p->p_p->ps_mtx);
 
-	SCHED_LOCK();
+	mtx = sched_cpu_lock(curcpu());
 	setrunqueue(p->p_cpu, p, newprio);
 	p->p_ru.ru_nvcsw++;
 	next = sched_chooseproc();
-	mi_switch(next, &sched_lock);
+	mi_switch(next, mtx);
 
 	return (0);
 }

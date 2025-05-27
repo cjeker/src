@@ -109,6 +109,7 @@ struct smr_entry;
  */
 struct schedstate_percpu {
 	struct proc *spc_idleproc;	/* [I] idle proc for this cpu */
+	struct mutex spc_sched_lock;	/* per-cpu scheduler lock */
 	TAILQ_HEAD(prochead, proc) spc_qs[SCHED_NQS];
 	TAILQ_HEAD(,proc) spc_deadproc;
 	struct timespec spc_runtime;	/* time curproc started running */
@@ -203,6 +204,11 @@ void remrunqueue(struct proc *);
 	if (curcpu()->ci_schedstate.spc_schedflags & SPCF_SHOULDYIELD)	\
 		func();							\
 } while (0)
+
+#define	SCHED_CPU_ASSERT_LOCKED(ci)			\
+		MUTEX_ASSERT_LOCKED(&ci->ci_schedstate.spc_sched_lock)
+#define	SCHED_CPU_ASSERT_UNLOCKED()			\
+		MUTEX_ASSERT_UNLOCKED(&ci->ci_schedstate.spc_sched_lock)
 
 extern struct mutex sched_lock;
 
