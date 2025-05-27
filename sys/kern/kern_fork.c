@@ -341,12 +341,12 @@ fork_thread_start(struct proc *p, struct proc *parent, int flags)
 {
 	struct cpu_info *ci;
 
-	SCHED_LOCK();
 	ci = sched_choosecpu_fork(parent, flags);
 	TRACEPOINT(sched, fork, p->p_tid + THREAD_PID_OFFSET,
 	    p->p_p->ps_pid, CPU_INFO_UNIT(ci));
+	sched_cpu_lock(ci);
 	setrunqueue(ci, p, p->p_usrpri);
-	SCHED_UNLOCK();
+	sched_cpu_unlock(ci);
 }
 
 int
