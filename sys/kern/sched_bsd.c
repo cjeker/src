@@ -230,8 +230,11 @@ schedcpu(void *unused)
 {
 	static struct timeout to = TIMEOUT_INITIALIZER(schedcpu, NULL);
 	fixpt_t loadfac = loadfactor(averunnable.ldavg[0]), pctcpu;
-	struct proc *p;
+	CPU_INFO_ITERATOR cii;
+	struct cpu_info *ci;
+	struct proc *p, *np;
 	unsigned int newcpu, cpt;
+	int queue;
 
 	LIST_FOREACH(p, &allproc, p_list) {
 		/*
@@ -255,7 +258,7 @@ schedcpu(void *unused)
 			p->p_pctcpu = pctcpu;
 			continue;
 		}
-		SCHED_LOCK();
+
 		/*
 		 * p_pctcpu is only for diagnostic tools such as ps.
 		 */
@@ -271,16 +274,30 @@ schedcpu(void *unused)
 #endif
 		p->p_pctcpu = pctcpu;
 		p->p_cpticks2 = cpt;
+
+		SCHED_LOCK();
 		newcpu = (u_int) decay_cpu(loadfac, p->p_estcpu);
 		setpriority(p, newcpu, p->p_p->ps_nice);
-
-		if (p->p_stat == SRUN &&
-		    (p->p_runpri / SCHED_PPQ) != (p->p_usrpri / SCHED_PPQ)) {
-			remrunqueue(p);
-			setrunqueue(p->p_cpu, p, p->p_usrpri);
-		}
 		SCHED_UNLOCK();
 	}
+
+	KERNEL_UNLOCK();
+	CPU_INFO_FOREACH(cii, ci) {
+		struct schedstate_percpu *spc = &ci->ci_schedstate;
+
+		sched_cpu_lock(ci);
+		for (queue = 0; queue < SCHED_NQS; queue++) {
+			TAILQ_FOREACH_SAFE(p, &spc->spc_qs[queue], p_runq, np) {
+				if ((p->p_runpri / SCHED_PPQ) !=
+				    (p->p_usrpri / SCHED_PPQ)) {
+					remrunqueue(p);
+					setrunqueue(p->p_cpu, p, p->p_usrpri);
+				}
+			}
+		}
+		sched_cpu_unlock(ci);
+	}
+	KERNEL_LOCK();
 	timeout_add_sec(&to, 1);
 }
 
@@ -316,12 +333,13 @@ void
 yield(void)
 {
 	struct proc *p = curproc, *next;
+	struct mutex *mtx;
 
-	SCHED_LOCK();
+	mtx = sched_cpu_lock(curcpu());
 	setrunqueue(p->p_cpu, p, p->p_usrpri);
 	p->p_ru.ru_nvcsw++;
 	next = sched_chooseproc();
-	mi_switch(next, &sched_lock);
+	mi_switch(next, mtx);
 }
 
 /*
@@ -334,12 +352,13 @@ void
 preempt(void)
 {
 	struct proc *p = curproc, *next;
+	struct mutex *mtx;
 
-	SCHED_LOCK();
+	mtx = sched_cpu_lock(curcpu());
 	setrunqueue(p->p_cpu, p, p->p_usrpri);
 	p->p_ru.ru_nivcsw++;
 	next = sched_chooseproc();
-	mi_switch(next, &sched_lock);
+	mi_switch(next, mtx);
 }
 
 void
@@ -477,7 +496,9 @@ setrunnable(struct proc *p)
 			return;
 		}
 		ci = sched_choosecpu(p);
+		sched_cpu_lock(ci);
 		setrunqueue(ci, p, prio);
+		sched_cpu_unlock(ci);
 		break;
 	case SSLEEP:
 		prio = p->p_slppri;
@@ -488,7 +509,9 @@ setrunnable(struct proc *p)
 		if (ISSET(p->p_flag, P_INSCHED))
 			return;
 		ci = sched_choosecpu(p);
+		sched_cpu_lock(ci);
 		setrunqueue(ci, p, prio);
+		sched_cpu_unlock(ci);
 		break;
 	}
 	if (p->p_slptime > 1) {

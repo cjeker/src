@@ -1686,7 +1686,9 @@ proc_stop_finish(struct proc *p)
 	if (p->p_stat == SSTOP) {
 		struct proc *next;
 		p->p_ru.ru_nvcsw++;
+		sched_cpu_lock(curcpu());
 		next = sched_chooseproc();
+		sched_cpu_unlock(curcpu());
 		mi_switch(next, &sched_lock);
 	} else {
 		KASSERT(p->p_stat == SONPROC);
