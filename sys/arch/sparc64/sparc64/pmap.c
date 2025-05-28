@@ -2439,6 +2439,7 @@ pmap_page_protect(struct vm_page *pg, vm_prot_t prot)
 		mtx_leave(&pg->mdpage.pvmtx);
 	} else {
 		pv_entry_t firstpv;
+		struct pv_entry pve;
 		/* remove mappings */
 
 		firstpv = pa_to_pvh(pa);
@@ -2446,10 +2447,19 @@ pmap_page_protect(struct vm_page *pg, vm_prot_t prot)
 
 		/* First remove the entire list of continuation pv's*/
 		while ((pv = firstpv->pv_next) != NULL) {
-			data = pseg_get(pv->pv_pmap, pv->pv_va & PV_VAMASK);
+			/* Remove item from the list, avoids concurrent calls */
+			firstpv->pv_next = pv->pv_next;
+			pv->pv_next = NULL;
+
+			/* Unlock the pv lock to avoid ordering problems */
+			mtx_leave(&pg->mdpage.pvmtx);
+			mtx_enter(&pv->pv_pmap->pm_mtx);
 
 			/* Save REF/MOD info */
+			data = pseg_get(pv->pv_pmap, pv->pv_va & PV_VAMASK);
+			mtx_enter(&pg->mdpage.pvmtx);
 			firstpv->pv_va |= pmap_tte2flags(data);
+			mtx_leave(&pg->mdpage.pvmtx);
 
 			/* Clear mapping */
 			if (pseg_set(pv->pv_pmap, pv->pv_va & PV_VAMASK, 0, 0)) {
@@ -2457,6 +2467,8 @@ pmap_page_protect(struct vm_page *pg, vm_prot_t prot)
 				db_enter();
 				/* panic? */
 			}
+			mtx_leave(&pv->pv_pmap->pm_mtx);
+
 			if (pv->pv_pmap->pm_ctx || pv->pv_pmap == pmap_kernel()) {
 				tsb_invalidate(pv->pv_pmap->pm_ctx,
 				    (pv->pv_va & PV_VAMASK));
@@ -2467,21 +2479,37 @@ pmap_page_protect(struct vm_page *pg, vm_prot_t prot)
 			firstpv->pv_next = pv->pv_next;
 			pv->pv_next = freepvs;
 			freepvs = pv;
+			mtx_enter(&pg->mdpage.pvmtx);
 		}
 
-		pv = firstpv;
+		/*
+		 * Make a local copy of the primary pv data to guard
+		 * against concurrent calls.
+		 */
+		pv = NULL;
+		if (firstpv->pv_pmap != NULL) {
+			pve = *firstpv;
+			pv = &pve;
+			firstpv->pv_pmap = NULL;
+		}
+		mtx_leave(&pg->mdpage.pvmtx);
 
-		/* Then remove the primary pv */
-		if (pv->pv_pmap != NULL) {
-			data = pseg_get(pv->pv_pmap, pv->pv_va & PV_VAMASK);
+		if (pv != NULL) {
+			mtx_enter(&pv->pv_pmap->pm_mtx);
 
 			/* Save REF/MOD info */
-			pv->pv_va |= pmap_tte2flags(data);
+			data = pseg_get(pv->pv_pmap, pv->pv_va & PV_VAMASK);
+			mtx_enter(&pg->mdpage.pvmtx);
+			firstpv->pv_va |= pmap_tte2flags(data);
+			mtx_leave(&pg->mdpage.pvmtx);
+
+			/* Clear mapping */
 			if (pseg_set(pv->pv_pmap, pv->pv_va & PV_VAMASK, 0, 0)) {
 				printf("pmap_page_protect: gotten pseg empty!\n");
 				db_enter();
 				/* panic? */
 			}
+			mtx_leave(&pv->pv_pmap->pm_mtx);
 			if (pv->pv_pmap->pm_ctx || pv->pv_pmap == pmap_kernel()) {
 				tsb_invalidate(pv->pv_pmap->pm_ctx,
 				    (pv->pv_va & PV_VAMASK));
@@ -2489,13 +2517,9 @@ pmap_page_protect(struct vm_page *pg, vm_prot_t prot)
 				    pv->pv_pmap->pm_ctx);
 			}
 			atomic_dec_long(&pv->pv_pmap->pm_stats.resident_count);
-
-			KASSERT(pv->pv_next == NULL);
-			/* dump the first pv */
-			pv->pv_pmap = NULL;
 		}
+
 		dcache_flush_page(pa);
-		mtx_leave(&pg->mdpage.pvmtx);
 
 		while ((pv = freepvs) != NULL) {
 			freepvs = pv->pv_next;
