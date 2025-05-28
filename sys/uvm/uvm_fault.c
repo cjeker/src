@@ -662,13 +662,8 @@ uvm_fault(vm_map_t orig_map, vaddr_t vaddr, vm_fault_t fault_type,
 	flt.access_type = access_type;
 	flt.narrow = FALSE;		/* assume normal fault for now */
 	flt.wired = FALSE;		/* assume non-wired fault for now */
-#if notyet
 	flt.upper_lock_type = RW_READ;
 	flt.lower_lock_type = RW_READ;	/* shared lock for now */
-#else
-	flt.upper_lock_type = RW_WRITE;
-	flt.lower_lock_type = RW_WRITE;	/* exclusive lock for now */
-#endif
 
 	error = ERESTART;
 	while (error == ERESTART) { /* ReFault: */
