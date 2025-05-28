@@ -1533,43 +1533,6 @@ pmap_release(struct pmap *pm)
 void
 pmap_collect(struct pmap *pm)
 {
-	int i, j, k, n, m, s;
-	paddr_t *pdir, *ptbl;
-	/* This is a good place to scan the pmaps for page tables with
-	 * no valid mappings in them and free them. */
-	
-	/* NEVER GARBAGE COLLECT THE KERNEL PMAP */
-	if (pm == pmap_kernel())
-		return;
-
-	s = splvm();
-	for (i=0; i<STSZ; i++) {
-		if ((pdir = (paddr_t *)(u_long)ldxa((vaddr_t)&pm->pm_segs[i], ASI_PHYS_CACHED))) {
-			m = 0;
-			for (k=0; k<PDSZ; k++) {
-				if ((ptbl = (paddr_t *)(u_long)ldxa((vaddr_t)&pdir[k], ASI_PHYS_CACHED))) {
-					m++;
-					n = 0;
-					for (j=0; j<PTSZ; j++) {
-						int64_t data = ldxa((vaddr_t)&ptbl[j], ASI_PHYS_CACHED);
-						if (data&TLB_V)
-							n++;
-					}
-					if (!n) {
-						/* Free the damn thing */
-						stxa((paddr_t)(u_long)&pdir[k], ASI_PHYS_CACHED, 0);
-						pmap_free_page((paddr_t)ptbl, pm);
-					}
-				}
-			}
-			if (!m) {
-				/* Free the damn thing */
-				stxa((paddr_t)(u_long)&pm->pm_segs[i], ASI_PHYS_CACHED, 0);
-				pmap_free_page((paddr_t)pdir, pm);
-			}
-		}
-	}
-	splx(s);
 }
 
 void
