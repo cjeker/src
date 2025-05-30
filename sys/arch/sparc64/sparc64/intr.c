@@ -72,11 +72,12 @@ void	intr_ack(struct intrhand *);
 int
 intr_handler(struct trapframe *tf, struct intrhand *ih)
 {
+	struct cpu_info *ci = curcpu();
 	int rc;
 #ifdef MULTIPROCESSOR
 	int need_lock;
 
-	LLTRACE(lltrace_intr_enter, LLTRACE_INTR_T_HW, ih->ih_number);
+	LLTRACE_CPU(ci, lltrace_intr_enter, LLTRACE_INTR_T_HW, ih->ih_number);
 
 	if (ih->ih_mpsafe)
 		need_lock = 0;
@@ -87,9 +88,9 @@ intr_handler(struct trapframe *tf, struct intrhand *ih)
 		KERNEL_LOCK();
 #endif
 	ci->ci_idepth++;
-	LLTRACE(lltrace_fn_enter, ih->ih_fun);
+	LLTRACE_CPU(ci, lltrace_fn_enter, ih->ih_fun);
 	rc = (*ih->ih_fun)(ih->ih_arg ? ih->ih_arg : tf);
-	LLTRACE(lltrace_fn_leave, ih->ih_fun);
+	LLTRACE_CPU(ci, lltrace_fn_leave, ih->ih_fun);
 	ci->ci_idepth--;
 
 #ifdef MULTIPROCESSOR
@@ -97,7 +98,7 @@ intr_handler(struct trapframe *tf, struct intrhand *ih)
 		KERNEL_UNLOCK();
 #endif
 
-	LLTRACE(lltrace_intr_leave, LLTRACE_INTR_T_HW, ih->ih_number);
+	LLTRACE_CPU(ci, lltrace_intr_leave, LLTRACE_INTR_T_HW, ih->ih_number);
 
 	return rc;
 }
