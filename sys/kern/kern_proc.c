@@ -585,7 +585,8 @@ db_show_all_procs(db_expr_t addr, int haddr, db_expr_t count, char *modif)
 
 		TAILQ_FOREACH(p, &pr->ps_threads, p_thr_link) {
 #ifdef MULTIPROCESSOR
-			if (__mp_lock_held(&kernel_lock, p->p_cpu))
+			if (p->p_cpu != NULL &&
+			    __mp_lock_held(&kernel_lock, p->p_cpu))
 				has_kernel_lock = 1;
 			else
 				has_kernel_lock = 0;
