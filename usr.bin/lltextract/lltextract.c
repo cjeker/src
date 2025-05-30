@@ -665,12 +665,14 @@ lltextract(size_t block, const struct ring *ring)
 		}
 
 		if (ISSET(LLTRACE_TS_TYPES, 1U << type)) {
+			int64_t cy;
+
 			cy32 = record & (LLTRACE_TS_MASK << LLTRACE_TS_SHIFT);
 			cy32 <<= TS32_SHIFT;
 			cydiff = (cy32 - state.cy32);
 			cydiff >>= TS32_SHIFT;
 
-			int64_t cy = state.cy + cydiff;
+			cy  = state.cy + cydiff;
 			if (cydiff > 0) {
 				state.cy32 = cy32;
 				state.cy += cydiff;
@@ -1370,7 +1372,7 @@ lltx_locking(struct lltstate *state, struct llevent *lle, uint64_t record,
 	uint64_t pc;
 	uint64_t ev;
 	size_t n;
-	struct ksym *k, *kk;
+	struct ksym *k, *kk = NULL;
 	unsigned int nargs = 1;
 
 	ltype = (record >> LLTRACE_LK_TYPE_SHIFT) & LLTRACE_LK_TYPE_MASK;
