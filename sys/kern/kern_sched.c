@@ -170,28 +170,23 @@ void
 sched_idle(void *v)
 {
 	struct schedstate_percpu *spc;
-	struct proc *p = curproc, *next;
+	struct proc *p = curproc;
 	struct cpu_info *ci = v;
 	struct mutex *mtx;
 
 	spc = &ci->ci_schedstate;
 
+	KASSERT(ci == curcpu());
+	KASSERT(curproc == spc->spc_idleproc);
+	KASSERT(p->p_cpu == ci);
+
 	/*
 	 * First time we enter here, we're not supposed to idle,
 	 * just go away for a while.
 	 */
-	mtx = sched_cpu_lock(ci);
-	p->p_stat = SSLEEP;
-	p->p_cpu = ci;
-	atomic_setbits_int(&p->p_flag, P_CPUPEG);
-	next = sched_chooseproc();
-	mi_switch(next, mtx);
-
-	KASSERT(ci == curcpu());
-	KASSERT(curproc == spc->spc_idleproc);
 
 	while (1) {
-		while (spc->spc_whichqs != 0) {
+		do {
 			struct proc *dead, *next;
 
 			mtx = sched_cpu_lock(ci);
@@ -209,7 +204,7 @@ sched_idle(void *v)
 			    SPCF_SHOULDHALT))
 				sched_purge_queues(ci);
 #endif
-		}
+		} while (spc->spc_whichqs != 0);
 
 		splassert(IPL_NONE);
 
