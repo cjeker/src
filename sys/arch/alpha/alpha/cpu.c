@@ -74,7 +74,7 @@
 #include <machine/rpb.h>
 #include <machine/prom.h>
 
-struct cpu_info cpu_info_primary;
+struct cpu_info cpu_info_primary = { .ci_flags = CPUF_PRIMARY };
 struct cpu_info *cpu_info_list = &cpu_info_primary;
 
 #if defined(MULTIPROCESSOR)
