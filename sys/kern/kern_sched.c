@@ -174,16 +174,21 @@ sched_idle(void *v)
 	struct cpu_info *ci = v;
 	struct mutex *mtx;
 
+	/*
+	 * First time we enter here, the cpu just hatched, so add
+	 * it to sched_all_cpus and then just go away for a while.
+	 */
+#ifdef __HAVE_CPU_TOPOLOGY
+	if (sched_smt || ci->ci_smt_id == 0)
+		cpuset_add(&sched_all_cpus, ci);
+#else
+	cpuset_add(&sched_all_cpus, ci);
+#endif
 	spc = &ci->ci_schedstate;
 
 	KASSERT(ci == curcpu());
 	KASSERT(curproc == spc->spc_idleproc);
 	KASSERT(p->p_cpu == ci);
-
-	/*
-	 * First time we enter here, we're not supposed to idle,
-	 * just go away for a while.
-	 */
 
 	while (1) {
 		do {
@@ -284,17 +289,9 @@ sched_toidle(void)
 	idle->p_stat = SRUN;
 
 	uvmexp.swtch++;
-	if (curproc == NULL) {
-#ifdef __HAVE_CPU_TOPOLOGY
-		if (sched_smt || ci->ci_smt_id == 0)
-			cpuset_add(&sched_all_cpus, ci);
-#else
-		cpuset_add(&sched_all_cpus, ci);
-#endif
-	} else {
+	if (curproc != NULL)
 		TRACEPOINT(sched, off__cpu, idle->p_tid + THREAD_PID_OFFSET,
 		    idle->p_p->ps_pid);
-	}
 	cpu_switchto(NULL, idle);
 	panic("cpu_switchto returned");
 }
