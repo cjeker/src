@@ -357,7 +357,7 @@ struct p_inentry {
  *	m	this proc's' `p->p_p->ps_mtx'
  */
 struct proc {
-	TAILQ_ENTRY(proc) p_runq;	/* [S] current run/sleep queue */
+	TAILQ_ENTRY(proc) p_runq;	/* [s][S] current run/sleep queue */
 	LIST_ENTRY(proc) p_list;	/* List of all threads. */
 
 	struct	process *p_p;		/* [I] The process of this thread. */
@@ -385,14 +385,14 @@ struct proc {
 	unsigned int	p_cpticks; 	/* [o] Ticks of cpu time. */
 	unsigned int	p_cpticks2; 	/* [K] last times ticks */
 	const volatile void *p_wchan;	/* [S] Sleep address. */
-	struct	timeout p_sleep_to;/* timeout for tsleep() */
+	struct	timeout p_sleep_to;	/* timeout for tsleep() */
 	const char *p_wmesg;		/* [S] Reason for sleep. */
 	volatile fixpt_t p_pctcpu;	/* [a] %cpu for this thread */
-	u_int	p_slptime;		/* [S] Time since last blocked. */
 	struct	cpu_info * volatile p_cpu; /* [S] CPU we're running on. */
 
 	struct	rusage p_ru;		/* Statistics */
 	struct	tusage p_tu;		/* [o] accumulated times. */
+	uint64_t p_lastsw;		/* [o] Time of last mi_switch. */
 
 	struct	plimit	*p_limit;	/* [l] read ref. of p_p->ps_limit */
 	struct	kcov_dev *p_kd;		/* kcov device handle */

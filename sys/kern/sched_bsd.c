@@ -245,17 +245,10 @@ schedcpu(void *unused)
 		if (p->p_cpu != NULL &&
 		    p->p_cpu->ci_schedstate.spc_idleproc == p)
 			continue;
-		/*
-		 * Increment sleep time (if sleeping). We ignore overflow.
-		 */
-		if (p->p_stat == SSLEEP || p->p_stat == SSTOP)
-			p->p_slptime++;
+
 		pctcpu = (p->p_pctcpu * ccpu) >> FSHIFT;
-		/*
-		 * If the process has slept the entire second,
-		 * stop recalculating its priority until it wakes up.
-		 */
-		if (p->p_slptime > 1) {
+
+		if (p->p_stat == SSLEEP || p->p_stat == SSTOP) {
 			p->p_pctcpu = pctcpu;
 			continue;
 		}
@@ -318,11 +311,8 @@ decay_aftersleep(uint32_t estcpu, uint32_t slptime)
 	if (slptime > 5 * loadfac)
 		newcpu = 0;
 	else {
-		newcpu = estcpu;
-		slptime--;	/* the first time was done in schedcpu */
-		while (newcpu && --slptime)
+		for (newcpu = estcpu; newcpu && slptime; slptime--)
 			newcpu = decay_cpu(loadfac, newcpu);
-
 	}
 
 	return (newcpu);
@@ -472,8 +462,10 @@ void
 setrunnable(struct proc *p)
 {
 	struct process *pr = p->p_p;
-	struct cpu_info *ci;
+	struct cpu_info *ci, *pci;
 	u_char prio;
+	uint64_t slptime;
+	uint32_t newcpu;
 
 	SCHED_ASSERT_LOCKED();
 
@@ -498,32 +490,27 @@ setrunnable(struct proc *p)
 				p->p_stat = SONPROC;
 			return;
 		}
-		ci = sched_choosecpu(p);
-		sched_cpu_lock(ci);
-		setrunqueue(ci, p, prio);
-		sched_cpu_unlock(ci);
 		break;
 	case SSLEEP:
 		prio = p->p_slppri;
-
 		TRACEPOINT(sched, wakeup, p->p_tid + THREAD_PID_OFFSET,
 		    p->p_p->ps_pid, CPU_INFO_UNIT(p->p_cpu));
 		/* if not yet asleep, don't add to runqueue */
 		if (ISSET(p->p_flag, P_INSCHED))
 			return;
-		ci = sched_choosecpu(p);
-		sched_cpu_lock(ci);
-		setrunqueue(ci, p, prio);
-		sched_cpu_unlock(ci);
 		break;
 	}
-	if (p->p_slptime > 1) {
-		uint32_t newcpu;
 
-		newcpu = decay_aftersleep(p->p_estcpu, p->p_slptime);
-		setpriority(p, newcpu, pr->ps_nice);
-	}
-	p->p_slptime = 0;
+	ci = sched_choosecpu(p);
+	pci = p->p_cpu;
+	sched_cpu_lock_both(ci, pci);
+	setrunqueue(ci, p, prio);
+	sched_cpu_unlock_both(ci, pci);
+
+	slptime = (nsecuptime() - p->p_lastsw) / 1000000000ULL;
+
+	newcpu = decay_aftersleep(p->p_estcpu, slptime);
+	setpriority(p, newcpu, pr->ps_nice);
 }
 
 /*
