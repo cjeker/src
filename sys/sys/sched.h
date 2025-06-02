@@ -105,16 +105,22 @@ struct smr_entry;
 
 /*
  * Per-CPU scheduler state.
+ *	I	immutable after creation
+ *	a	atomic operations
  *	o	owned (modified only) by this CPU
+ *	S	per-cpu scheduler lock
  */
 struct schedstate_percpu {
 	struct proc *spc_idleproc;	/* [I] idle proc for this cpu */
 	struct mutex spc_sched_lock;	/* per-cpu scheduler lock */
-	TAILQ_HEAD(prochead, proc) spc_qs[SCHED_NQS];
-	TAILQ_HEAD(,proc) spc_deadproc;
-	struct timespec spc_runtime;	/* time curproc started running */
-	volatile int spc_schedflags;	/* flags; see below */
-	u_int spc_schedticks;		/* ticks for schedclock() */
+	TAILQ_HEAD(prochead, proc) spc_qs[SCHED_NQS];	/* [s] */
+	u_int spc_nrun;			/* [s] procs on the run queues */
+	volatile uint32_t spc_whichqs;	/* [s] which sched queues have work */
+
+	TAILQ_HEAD(,proc) spc_deadproc;	/* [o] */
+	struct timespec spc_runtime;	/* [o] time curproc started running */
+	volatile int spc_schedflags;	/* [a] flags; see below */
+	u_int spc_schedticks;		/* [o] ticks for schedclock() */
 	struct mutex *spc_mtx;		/* [o] mutex held in mi_switch */
 	struct pc_lock spc_cp_time_lock;
 	u_int64_t spc_cp_time[CPUSTATES]; /* CPU state statistics */
@@ -124,10 +130,7 @@ struct schedstate_percpu {
 	struct clockintr spc_roundrobin;/* [o] roundrobin handle */
 	struct clockintr spc_statclock;	/* [o] statclock handle */
 
-	u_int spc_nrun;			/* procs on the run queues */
-
-	volatile uint32_t spc_whichqs;
-	volatile u_int spc_spinning;	/* this cpu is currently spinning */
+	volatile u_int spc_spinning;	/* [o] this cpu is currently spinning */
 
 	SIMPLEQ_HEAD(, smr_entry) spc_deferred; /* deferred smr calls */
 	u_int spc_ndeferred;		/* number of deferred smr calls */
