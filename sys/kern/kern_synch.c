@@ -303,7 +303,6 @@ sleep_setup(const volatile void *ident, int prio, const char *wmesg)
 
 	p->p_wchan = ident;
 	p->p_wmesg = wmesg;
-	p->p_slptime = 0;
 	p->p_slppri = prio & PRIMASK;
 	atomic_setbits_int(&p->p_flag, P_INSCHED);
 	TAILQ_INSERT_TAIL(&slpque[LOOKUP(ident)], p, p_runq);
