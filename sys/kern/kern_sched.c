@@ -577,7 +577,7 @@ sched_proc_to_cpu_cost(struct cpu_info *ci, struct proc *p)
 	 * If the proc is on this cpu already, lower the cost by how much
 	 * it has been running and an estimate of its footprint.
 	 */
-	if (p->p_cpu == ci && p->p_slptime == 0) {
+	if (p->p_cpu == ci) {
 		l2resident =
 		    log2(pmap_resident_count(p->p_vmspace->vm_map.pmap));
 		cost -= l2resident * sched_cost_resident;
