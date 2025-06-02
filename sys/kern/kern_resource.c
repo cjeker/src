@@ -464,6 +464,7 @@ tuagg_add_runtime(void)
 	spc->spc_runtime = ts;
 	gen = tu_enter(&p->p_tu);
 	timespecadd(&p->p_tu.tu_runtime, &delta, &p->p_tu.tu_runtime);
+	p->p_lastsw = TIMESPEC_TO_NSEC(&ts);
 	tu_leave(&p->p_tu, gen);
 }
 

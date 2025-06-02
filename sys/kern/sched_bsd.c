@@ -242,20 +242,8 @@ schedcpu(void *unused)
 		if (p->p_cpu != NULL &&
 		    p->p_cpu->ci_schedstate.spc_idleproc == p)
 			continue;
-		/*
-		 * Increment sleep time (if sleeping). We ignore overflow.
-		 */
-		if (p->p_stat == SSLEEP || p->p_stat == SSTOP)
-			p->p_slptime++;
+
 		pctcpu = (p->p_pctcpu * ccpu) >> FSHIFT;
-		/*
-		 * If the process has slept the entire second,
-		 * stop recalculating its priority until it wakes up.
-		 */
-		if (p->p_slptime > 1) {
-			p->p_pctcpu = pctcpu;
-			continue;
-		}
 
 		SCHED_LOCK();
 		/*
@@ -458,6 +446,7 @@ setrunnable(struct proc *p)
 	struct process *pr = p->p_p;
 	struct cpu_info *ci;
 	u_char prio;
+	uint64_t slptime;
 
 	SCHED_ASSERT_LOCKED();
 
@@ -501,13 +490,14 @@ setrunnable(struct proc *p)
 		sched_cpu_unlock(ci);
 		break;
 	}
-	if (p->p_slptime > 1) {
+
+	slptime = (nsecuptime() - p->p_lastsw) / 1000000000ULL;
+	if (slptime > 1) {
 		uint32_t newcpu;
 
-		newcpu = decay_aftersleep(p->p_estcpu, p->p_slptime);
+		newcpu = decay_aftersleep(p->p_estcpu, slptime);
 		setpriority(p, newcpu, pr->ps_nice);
 	}
-	p->p_slptime = 0;
 }
 
 /*

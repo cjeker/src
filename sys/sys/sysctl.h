@@ -686,7 +686,8 @@ do {									\
 		}							\
 		(kp)->p_addr = PTRTOINT64((p)->p_addr);			\
 		(kp)->p_stat = (p)->p_stat;				\
-		(kp)->p_slptime = (p)->p_slptime;			\
+		(kp)->p_slptime =  (nsecuptime() -			\
+		    (p)->p_lastsw) / 1000000000ULL;			\
 		(kp)->p_holdcnt = 1;					\
 		(kp)->p_priority = _getcompatprio(p);			\
 		(kp)->p_usrpri = (p)->p_usrpri;				\
