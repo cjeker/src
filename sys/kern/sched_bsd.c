@@ -64,6 +64,7 @@ void			schedcpu(void *);
 uint32_t		decay_aftersleep(uint32_t, uint32_t);
 
 extern struct cpuset sched_idle_cpus;
+extern struct cpuset sched_all_cpus;
 
 /*
  * constants for averages over 1, 5, and 15 minutes when sampling at
@@ -120,11 +121,12 @@ update_loadavg(void *unused)
 	static struct timeout to = TIMEOUT_INITIALIZER(update_loadavg, NULL);
 	CPU_INFO_ITERATOR cii;
 	struct cpu_info *ci;
+	struct cpuset set;
 	u_int i, nrun = 0;
 
+	cpuset_complement(&set, &sched_all_cpus, &sched_idle_cpus);
+	nrun = cpuset_cardinality(&set);
 	CPU_INFO_FOREACH(cii, ci) {
-		if (!cpuset_isset(&sched_idle_cpus, ci))
-			nrun++;
 		nrun += ci->ci_schedstate.spc_nrun;
 	}
 
