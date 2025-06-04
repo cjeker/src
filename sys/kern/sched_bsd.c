@@ -230,7 +230,7 @@ void
 schedcpu(void *unused)
 {
 	static struct timeout to = TIMEOUT_INITIALIZER(schedcpu, NULL);
-	fixpt_t loadfac = loadfactor(averunnable.ldavg[0]);
+	fixpt_t loadfac = loadfactor(averunnable.ldavg[0]), pctcpu;
 	struct proc *p;
 	unsigned int newcpu;
 
@@ -243,21 +243,22 @@ schedcpu(void *unused)
 		    p->p_cpu->ci_schedstate.spc_idleproc == p)
 			continue;
 
-		p->p_pctcpu = (p->p_pctcpu * ccpu) >> FSHIFT;
+		pctcpu = (p->p_pctcpu * ccpu) >> FSHIFT;
 
 		SCHED_LOCK();
 		/*
 		 * p_pctcpu is only for diagnostic tools such as ps.
 		 */
 #if	(FSHIFT >= CCPU_SHIFT)
-		p->p_pctcpu += (stathz == 100)?
+		pctcpu += (stathz == 100)?
 			((fixpt_t) p->p_cpticks) << (FSHIFT - CCPU_SHIFT):
                 	100 * (((fixpt_t) p->p_cpticks)
 				<< (FSHIFT - CCPU_SHIFT)) / stathz;
 #else
-		p->p_pctcpu += ((FSCALE - ccpu) *
+		pctcpu += ((FSCALE - ccpu) *
 			(p->p_cpticks * FSCALE / stathz)) >> FSHIFT;
 #endif
+		p->p_pctcpu = pctcpu;
 		p->p_cpticks = 0;
 		newcpu = (u_int) decay_cpu(loadfac, p->p_estcpu);
 		setpriority(p, newcpu, p->p_p->ps_nice);
