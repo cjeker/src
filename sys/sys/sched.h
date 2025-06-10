@@ -177,9 +177,13 @@ struct cpu_info *sched_choosecpu_fork(struct proc *parent, int);
 void cpu_idle_enter(void);
 void cpu_idle_cycle(void);
 void cpu_idle_leave(void);
-void sched_peg_curproc(struct cpu_info *ci);
+void sched_cpu_lock_both(struct cpu_info *, struct cpu_info *);
+void sched_cpu_unlock_both(struct cpu_info *, struct cpu_info *);
+void sched_cpu_unlock_inner(struct cpu_info *, struct cpu_info *);
+void sched_cpu_lock_order(struct cpu_info *, struct cpu_info *);
+void sched_peg_curproc(struct cpu_info *);
 void sched_unpeg_curproc(void);
-void sched_barrier(struct cpu_info *ci);
+void sched_barrier(struct cpu_info *);
 
 int sysctl_hwsetperf(void *, size_t *, void *, size_t);
 int sysctl_hwperfpolicy(void *, size_t *, void *, size_t);
