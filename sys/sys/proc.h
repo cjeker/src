@@ -672,10 +672,17 @@ tu_leave(struct tusage *tu, unsigned int gen)
 	pc_sprod_leave(&tu->tu_pcl, gen);
 }
 
+/* can't be in sched.h because cpu_info depends on sched.h */
+static inline struct mutex *
+sched_cpu_mtx(struct cpu_info *ci)
+{
+	return &ci->ci_schedstate.spc_sched_lock;
+}
+
 static inline struct mutex *
 sched_cpu_lock(struct cpu_info *ci)
 {
-	struct mutex *mtx = &ci->ci_schedstate.spc_sched_lock;
+	struct mutex *mtx = sched_cpu_mtx(ci);
 	mtx_enter(mtx);
 	return mtx;
 }
@@ -683,8 +690,7 @@ sched_cpu_lock(struct cpu_info *ci)
 static inline void
 sched_cpu_unlock(struct cpu_info *ci)
 {
-	struct mutex *mtx = &ci->ci_schedstate.spc_sched_lock;
-	mtx_leave(mtx);
+	mtx_leave(sched_cpu_mtx(ci));
 }
 
 static inline struct mutex *
