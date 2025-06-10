@@ -144,7 +144,7 @@ sched_kthreads_create(void *v)
 static void
 sched_purge_queues(struct cpu_info *ci)
 {
-	TAILQ_HEAD(prochead, proc)	pq = TAILQ_HEAD_INITIALIZER(pq);
+	TAILQ_HEAD(prochead, proc) pq = TAILQ_HEAD_INITIALIZER(pq);
 	struct schedstate_percpu *spc;
 	struct proc *p;
 	int queue;
@@ -163,9 +163,9 @@ sched_purge_queues(struct cpu_info *ci)
 		TAILQ_REMOVE(&pq, p, p_runq);
 
 		ci = sched_choosecpu(p);
-		sched_cpu_lock(ci);
+		sched_cpu_lock_both(ci, curcpu());
 		setrunqueue(ci, p, p->p_runpri);
-		sched_cpu_unlock(ci);
+		sched_cpu_unlock_both(ci, curcpu());
 		KASSERT(p->p_cpu != curcpu() || p->p_flag & P_CPUPEG);
 	}
 }
@@ -587,38 +587,78 @@ sched_proc_to_cpu_cost(struct cpu_info *ci, struct proc *p)
 }
 
 /*
+ * Lock functions for multiple cpus. Use the CPU_INFO_UNIT to enforce
+ * constant lock order.
+ */
+void
+sched_cpu_lock_both(struct cpu_info *outer, struct cpu_info *inner)
+{
+	if (outer == inner) {
+		sched_cpu_lock(outer);
+	} else if (CPU_INFO_UNIT(outer) > CPU_INFO_UNIT(inner)) {
+		sched_cpu_lock(inner);
+		sched_cpu_lock(outer);
+	} else {
+		sched_cpu_lock(outer);
+		sched_cpu_lock(inner);
+	}
+}
+
+/* Unlock both cpus in the reverse order from sched_cpu_lock_both.  */
+void
+sched_cpu_unlock_both(struct cpu_info *outer, struct cpu_info *inner)
+{
+	if (outer == inner) {
+		sched_cpu_unlock(outer);
+	} else if (CPU_INFO_UNIT(outer) > CPU_INFO_UNIT(inner)) {
+		sched_cpu_unlock(outer);
+		sched_cpu_unlock(inner);
+	} else {
+		sched_cpu_unlock(inner);
+		sched_cpu_unlock(outer);
+	}
+}
+
+/* If outer and inner are different unlock. */
+void
+sched_cpu_unlock_inner(struct cpu_info *outer, struct cpu_info *inner)
+{
+	if (outer != inner)
+		sched_cpu_unlock(inner);
+}
+
+/* Enforce lock release order to first inner then outer. */
+void
+sched_cpu_lock_order(struct cpu_info *outer, struct cpu_info *inner)
+{
+	int ipl;
+	if (CPU_INFO_UNIT(outer) > CPU_INFO_UNIT(inner)) {
+		/* swap IPL since the locks are released in reverse order */
+		ipl = MUTEX_OLDIPL(sched_cpu_mtx(inner));
+		MUTEX_OLDIPL(sched_cpu_mtx(inner)) =
+		    MUTEX_OLDIPL(sched_cpu_mtx(outer));
+		MUTEX_OLDIPL(sched_cpu_mtx(outer)) = ipl;
+	}
+}
+
+/*
  * Peg a proc to a cpu.
  */
 void
 sched_peg_curproc(struct cpu_info *ci)
 {
 	struct proc *p = curproc, *next;
-	struct mutex *mymtx, *omtx;
-	int ipl;
 
-	if (curcpu() == ci) {
-		omtx = sched_cpu_lock(ci);
-		mymtx = NULL;
-	} else if (CPU_INFO_UNIT(curcpu()) < CPU_INFO_UNIT(ci)) {
-		mymtx = sched_cpu_lock(curcpu());
-		omtx = sched_cpu_lock(ci);
-		/* swap IPL since the locks are released in reverse order */
-		ipl = MUTEX_OLDIPL(mymtx);
-		MUTEX_OLDIPL(mymtx) = MUTEX_OLDIPL(omtx);
-		MUTEX_OLDIPL(omtx) = ipl;
-	} else {
-		omtx = sched_cpu_lock(ci);
-		mymtx = sched_cpu_lock(curcpu());
-	}
+	sched_cpu_lock_both(ci, curcpu());
+	sched_cpu_lock_order(ci, curcpu());
 
 	atomic_setbits_int(&p->p_flag, P_CPUPEG);
 	setrunqueue(ci, p, p->p_usrpri);
 
 	p->p_ru.ru_nvcsw++;
 	next = sched_chooseproc();
-	if (mymtx != NULL)
-		mtx_leave(mymtx);
-	mi_switch(next, omtx);
+	sched_cpu_unlock_inner(ci, curcpu());
+	mi_switch(next, sched_cpu_mtx(ci));
 }
 
 void
