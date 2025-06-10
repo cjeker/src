@@ -2116,6 +2116,8 @@ fill_kproc(struct process *pr, struct kinfo_proc *ki, struct proc *p,
 #endif
 	}
 
+	ki->p_slptime =  (nsecuptime() - p->p_lastsw) / 1000000000ULL;
+
 	/* get %cpu and schedule state: just one thread or sum of all? */
 	if (isthread) {
 		ki->p_pctcpu = p->p_pctcpu;
