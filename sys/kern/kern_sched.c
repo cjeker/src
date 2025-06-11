@@ -143,7 +143,7 @@ sched_kthreads_create(void *v)
 static void
 sched_purge_queues(struct cpu_info *ci)
 {
-	TAILQ_HEAD(prochead, proc)	pq = TAILQ_HEAD_INITIALIZER(pq);
+	TAILQ_HEAD(prochead, proc) pq = TAILQ_HEAD_INITIALIZER(pq);
 	struct schedstate_percpu *spc;
 	struct proc *p;
 	int queue;
