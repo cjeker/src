@@ -370,7 +370,7 @@ struct proc {
 
 	int	p_flag;			/* P_* flags. */
 	u_char	p_spare;		/* unused */
-	char	p_stat;			/* [S] S* process status. */
+	volatile char	p_stat;		/* [S] S* process status. */
 	u_char	p_runpri;		/* [S] Runqueue priority */
 	u_char	p_descfd;		/* if not 255, fdesc permits this fd */
 
