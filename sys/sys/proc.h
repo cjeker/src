@@ -685,6 +685,21 @@ sched_cpu_unlock(struct cpu_info *ci)
 	mtx_leave(sched_cpu_mtx(ci));
 }
 
+static inline struct mutex *
+sched_proc_cpu_lock(struct proc *p)
+{
+	struct cpu_info *ci;
+	struct mutex *mtx;
+
+	while (1) {
+		ci = p->p_cpu;
+		mtx = sched_cpu_lock(ci);
+		if (p->p_cpu == ci)
+			break;
+		sched_cpu_unlock(ci);
+	}
+	return mtx;
+}
 
 #endif	/* _KERNEL */
 #endif	/* !_SYS_PROC_H_ */

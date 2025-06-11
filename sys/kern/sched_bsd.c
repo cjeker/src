@@ -266,7 +266,7 @@ schedcpu(void *unused)
 		newcpu = (u_int) decay_cpu(loadfac, p->p_estcpu);
 		setpriority(p, newcpu, p->p_p->ps_nice);
 
-		sched_cpu_lock(p->p_cpu);
+		sched_proc_cpu_lock(p);
 		if (p->p_stat == SRUN &&
 		    (p->p_runpri / SCHED_PPQ) != (p->p_usrpri / SCHED_PPQ)) {
 			remrunqueue(p);
