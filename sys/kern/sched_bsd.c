@@ -122,9 +122,9 @@ update_loadavg(void *unused)
 	CPU_INFO_ITERATOR cii;
 	struct cpu_info *ci;
 	struct cpuset set;
-	u_int i, nrun = 0;
+	u_int i, nrun;
 
-	cpuset_complement(&set, &sched_all_cpus, &sched_idle_cpus);
+	cpuset_complement(&set, &sched_idle_cpus, &sched_all_cpus);
 	nrun = cpuset_cardinality(&set);
 	CPU_INFO_FOREACH(cii, ci) {
 		nrun += ci->ci_schedstate.spc_nrun;
