@@ -250,7 +250,6 @@ schedcpu(void *unused)
 			continue;
 		}
 
-		SCHED_LOCK();
 		/*
 		 * p_pctcpu is only for diagnostic tools such as ps.
 		 */
@@ -265,17 +264,27 @@ schedcpu(void *unused)
 #endif
 		p->p_pctcpu = pctcpu;
 		p->p_cpticks = 0;
+
+		SCHED_LOCK();
 		newcpu = (u_int) decay_cpu(loadfac, p->p_estcpu);
 		setpriority(p, newcpu, p->p_p->ps_nice);
-
-		sched_proc_cpu_lock(p);
-		if (p->p_stat == SRUN &&
-		    (p->p_runpri / SCHED_PPQ) != (p->p_usrpri / SCHED_PPQ)) {
-			remrunqueue(p);
-			setrunqueue(p->p_cpu, p, p->p_usrpri);
-		}
-		sched_cpu_unlock(p->p_cpu);
 		SCHED_UNLOCK();
+
+		if (p->p_stat == SRUN) {
+			sched_proc_cpu_lock(p);
+#if 0
+			if (p->p_stat == SRUN &&
+			    (p->p_runpri / SCHED_PPQ) !=
+			    (p->p_usrpri / SCHED_PPQ)) {
+#else
+			/* XXX for testing */
+			if (p->p_stat == SRUN) {
+#endif
+				remrunqueue(p);
+				setrunqueue(p->p_cpu, p, p->p_usrpri);
+			}
+			sched_cpu_unlock(p->p_cpu);
+		}
 	}
 	wakeup(&lbolt);
 	timeout_add_sec(&to, 1);
