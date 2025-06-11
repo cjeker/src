@@ -99,7 +99,8 @@ sched_init_cpu(struct cpu_info *ci)
 
 	spc->spc_idleproc = NULL;
 
-	mtx_init(&spc->spc_sched_lock, IPL_SCHED);
+	mtx_init_flags(&spc->spc_sched_lock, IPL_SCHED, "cpu_schedlk",
+	    MTX_DUPOK);
 
 	clockintr_bind(&spc->spc_itimer, ci, itimer_update, NULL);
 	clockintr_bind(&spc->spc_profclock, ci, profclock, NULL);
