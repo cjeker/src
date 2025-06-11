@@ -245,8 +245,10 @@ schedcpu(void *unused)
 
 		pctcpu = (p->p_pctcpu * ccpu) >> FSHIFT;
 
-		if (p->p_stat == SSLEEP || p->p_stat == SSTOP)
+		if (p->p_stat == SSLEEP || p->p_stat == SSTOP) {
+			p->p_pctcpu = pctcpu;
 			continue;
+		}
 
 		SCHED_LOCK();
 		/*
