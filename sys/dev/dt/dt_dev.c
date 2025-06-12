@@ -884,7 +884,7 @@ dt_wakeup(struct dt_softc *sc)
 {
 	/*
 	 * It is not always safe or possible to call wakeup(9) and grab
-	 * the SCHED_LOCK() from a given tracepoint.  This is true for
+	 * a scheduler lock from a given tracepoint.  This is true for
 	 * any tracepoint that might trigger inside the scheduler or at
 	 * any IPL higher than IPL_SCHED.  For this reason use a soft-
 	 * interrupt to defer the wakeup.
