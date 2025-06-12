@@ -827,8 +827,9 @@ softclock_thread_run(struct timeout_ctx *tctx)
 
 	for (;;) {
 		/*
-		 * Avoid holding both timeout_mutex and SCHED_LOCK
-		 * at the same time.
+		 * Avoid holding the timeout_mutex while in the sleep API.
+		 * sleep depends on timeouts and here timeouts depend on
+		 * sleep.
 		 */
 		sleep_setup(todo, PSWP, "tmoslp");
 		sleep_finish(INFSLP, CIRCQ_EMPTY(tctx->tctx_todo));
