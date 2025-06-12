@@ -885,8 +885,10 @@ proc_sched_lock(struct proc *p)
 
 	do {
 		switch ((stat = p->p_stat)) {
-		case SSLEEP:
 		case SSTOP:
+			mtx = NULL;
+			break;
+		case SSLEEP:
 			mtx = &sched_lock;
 			mtx_enter(mtx);
 			break;
@@ -1114,8 +1116,10 @@ ptsignal_locked(struct proc *p, int signum, enum signal_type type)
 			/* Raise priority to at least PUSER. */
 			if (p->p_usrpri > PUSER)
 				p->p_usrpri = PUSER;
+			SCHED_LOCK();
 			unsleep(p);
 			setrunnable(p);
+			SCHED_UNLOCK();
 			goto out;
 		}
 
@@ -1138,7 +1142,9 @@ ptsignal_locked(struct proc *p, int signum, enum signal_type type)
 				/* Raise priority to at least PUSER. */
 				if (p->p_usrpri > PUSER)
 					p->p_usrpri = PUSER;
+				SCHED_LOCK();
 				unsleep(p);
+				SCHED_UNLOCK();
 			}
 
 			wakeparent = 1;
@@ -1167,8 +1173,11 @@ ptsignal_locked(struct proc *p, int signum, enum signal_type type)
 		 * runnable and can look at the signal.  But don't make
 		 * the process runnable, leave it stopped.
 		 */
-		if (p->p_flag & P_SINTR)
+		if (p->p_flag & P_SINTR) {
+			SCHED_LOCK();
 			unsleep(p);
+			SCHED_UNLOCK();
+		}
 		goto out;
 
 	case SSLEEP:
@@ -1252,6 +1261,7 @@ ptsignal_locked(struct proc *p, int signum, enum signal_type type)
 		 */
 		if (p->p_usrpri > PUSER)
 			p->p_usrpri = PUSER;
+		SCHED_ASSERT_LOCKED();
 		unsleep(p);
 		setrunnable(p);
 		goto out;
@@ -1639,8 +1649,10 @@ process_stop(struct process *pr, int flag, int mode)
 		switch (q->p_stat) {
 		case SSTOP:
 			if (mode == SINGLE_EXIT) {
+				SCHED_LOCK();
 				unsleep(q);
 				setrunnable(q);
+				SCHED_UNLOCK();
 			} else
 				--pr->ps_suspendcnt;
 			break;
