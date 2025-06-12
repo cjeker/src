@@ -308,7 +308,9 @@ sleep_setup(const volatile void *ident, int prio, const char *wmesg)
 	TAILQ_INSERT_TAIL(&slpque[LOOKUP(ident)], p, p_runq);
 	if (prio & PCATCH)
 		atomic_setbits_int(&p->p_flag, P_SINTR);
+	sched_cpu_lock(curcpu());
 	p->p_stat = SSLEEP;
+	sched_cpu_unlock(curcpu());
 
 	SCHED_UNLOCK();
 }
@@ -369,7 +371,9 @@ sleep_finish(uint64_t nsecs, int do_sleep)
 		mi_switch(next, &sched_lock);
 	} else {
 		KASSERT(p->p_stat == SONPROC || p->p_stat == SSLEEP);
+		sched_cpu_lock(curcpu());
 		p->p_stat = SONPROC;
+		sched_cpu_unlock(curcpu());
 		SCHED_UNLOCK();
 	}
 
