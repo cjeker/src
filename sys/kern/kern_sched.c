@@ -293,8 +293,7 @@ sched_toidle(void)
 
 	atomic_clearbits_int(&spc->spc_schedflags, SPCF_SWITCHCLEAR);
 
-	SCHED_LOCK();
-	spc->spc_mtx = &sched_lock;
+	spc->spc_mtx = sched_cpu_lock(curcpu());
 
 	idle = spc->spc_idleproc;
 	idle->p_stat = SRUN;
