@@ -125,8 +125,10 @@ __set_current_state(int state)
 	KASSERT(state == TASK_RUNNING);
 	SCHED_LOCK();
 	unsleep(p);
+	sched_cpu_lock(curcpu());
 	p->p_stat = SONPROC;
 	atomic_clearbits_int(&p->p_flag, P_INSCHED);
+	sched_cpu_unlock(curcpu());
 	SCHED_UNLOCK();
 }
 
