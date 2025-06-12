@@ -375,7 +375,7 @@ struct proc {
 	int	p_dupfd;	 /* Sideways return value from filedescopen. XXX */
 
 	/* scheduling */
-	int	p_cpticks;	 	/* Ticks of cpu time. */
+	unsigned int	p_cpticks; 	/* [a] Ticks of cpu time. */
 	const volatile void *p_wchan;	/* [S] Sleep address. */
 	struct	timeout p_sleep_to;	/* timeout for tsleep() */
 	const char *p_wmesg;		/* [S] Reason for sleep. */
@@ -403,8 +403,8 @@ struct proc {
 
 	char	p_name[_MAXCOMLEN];	/* thread name, incl NUL */
 	u_char	p_slppri;		/* [S] Sleeping priority */
-	u_char	p_usrpri;	/* [S] Priority based on p_estcpu & ps_nice */
-	u_int	p_estcpu;		/* [S] Time averaged val of p_cpticks */
+	u_char	p_usrpri;		/* [a] Priority of p_estcpu & ps_nice */
+	volatile uint32_t p_estcpu;	/* [a] Time averaged val of p_cpticks */
 	int	p_pledge_syscall;	/* Cache of current syscall */
 	uint64_t p_pledge;		/* [o] copy of p_p->ps_pledge */
 
