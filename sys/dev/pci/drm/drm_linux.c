@@ -167,12 +167,7 @@ schedule_timeout_uninterruptible(long timeout)
 int
 wake_up_process(struct proc *p)
 {
-	int rv;
-
-	SCHED_LOCK();
-	rv = wakeup_proc(p);
-	SCHED_UNLOCK();
-	return rv;
+	return wakeup_proc(p);
 }
 
 int
