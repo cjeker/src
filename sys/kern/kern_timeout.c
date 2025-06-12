@@ -836,7 +836,7 @@ softclock_thread_run(struct timeout_ctx *tctx)
 
 	for (;;) {
 		/*
-		 * Avoid holding both timeout_mutex and SCHED_LOCK
+		 * Avoid holding both timeout_mutex and any scheduler lock
 		 * at the same time.
 		 */
 		sleep_setup(todo, PSWP, "tmoslp");
