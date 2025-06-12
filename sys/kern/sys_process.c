@@ -513,11 +513,11 @@ ptrace_ctrl(struct proc *p, int req, pid_t pid, caddr_t addr, int data)
 		/* Finally, deliver the requested signal (or none). */
 		mtx_enter(&tr->ps_mtx);
 		if (tr->ps_trapped == t) {
-			SCHED_LOCK();
 			if (pid >= THREAD_PID_OFFSET)
 				atomic_setbits_int(&t->p_flag,
 				    P_TRACESINGLE);
 			tr->ps_xsig = data;
+			SCHED_LOCK();
 			unsleep(t);
 			setrunnable(t);
 			SCHED_UNLOCK();
