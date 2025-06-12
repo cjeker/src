@@ -482,9 +482,7 @@ sleep_signal_check(struct proc *p, int after_sleep)
 				atomic_clearbits_int(&p->p_siglist,
 				    sigmask(sig));
 				atomic_setbits_int(&pr->ps_flags, PS_STOPPING);
-				SCHED_LOCK();
 				process_stop(pr, P_SUSPSIG, SINGLE_SUSPEND);
-				SCHED_UNLOCK();
 				atomic_setbits_int(&p->p_flag, P_SUSPSIG);
 				process_suspend_signal(pr);
 				SCHED_LOCK();
