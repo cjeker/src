@@ -332,17 +332,13 @@ futex_list_wakeup(struct futex_list *fl)
 	/*
 	 * Setting ft_proc to NULL releases the futex reference
 	 * currently held via the slpque lock.
-	 *
-	 * SCHED_LOCK is only needed to call wakeup_proc.
 	 */
 
-	SCHED_LOCK();
 	TAILQ_FOREACH_SAFE(f, fl, ft_entry, nf) {
 		p = f->ft_proc;
 		f->ft_proc = NULL;
 		wakeup_proc(p);
 	}
-	SCHED_UNLOCK();
 }
 
 /*
