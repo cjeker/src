@@ -510,8 +510,7 @@ wakeup_proc(struct proc *p)
 {
 	int awakened = 0;
 
-	SCHED_ASSERT_LOCKED();
-
+	SCHED_LOCK();
 	if (p->p_wchan != NULL) {
 		awakened = 1;
 #ifdef DIAGNOSTIC
@@ -522,6 +521,7 @@ wakeup_proc(struct proc *p)
 		if (p->p_stat == SSLEEP)
 			setrunnable(p);
 	}
+	SCHED_UNLOCK();
 
 	return awakened;
 }
@@ -541,9 +541,7 @@ endtsleep(void *arg)
 	int awakened;
 	int flags;
 
-	SCHED_LOCK();
 	awakened = wakeup_proc(p);
-	SCHED_UNLOCK();
 
 	flags = P_TIMEOUTRAN;
 	if (awakened)
@@ -836,13 +834,11 @@ tslp_wakeups(struct tslpqueue *tslpq)
 	struct tslpentry *entry, *nentry;
 	struct proc *p;
 
-	SCHED_LOCK();
 	TAILQ_FOREACH_SAFE(entry, tslpq, tslp_link, nentry) {
 		p = entry->tslp_p;
 		entry->tslp_p = NULL;
 		wakeup_proc(p);
 	}
-	SCHED_UNLOCK();
 }
 
 int
