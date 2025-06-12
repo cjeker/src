@@ -204,7 +204,12 @@ update_loadavg(void *unused)
 
 /* calculations for digital decay to forget 90% of usage in 5*loadav sec */
 #define	loadfactor(loadav)	(2 * (loadav))
-#define	decay_cpu(loadfac, cpu)	(((loadfac) * (cpu)) / ((loadfac) + FSCALE))
+
+static inline uint32_t
+decay_cpu(fixpt_t loadfac, uint32_t estcpu)
+{
+	return (loadfac * estcpu) / (loadfac + FSCALE);
+}
 
 /* decay 95% of `p_pctcpu' in 60 seconds; see CCPU_SHIFT before changing */
 fixpt_t	ccpu = 0.95122942450071400909 * FSCALE;		/* exp(-1/20) */
@@ -235,6 +240,7 @@ schedcpu(void *unused)
 	struct cpu_info *ci;
 	struct proc *p, *np;
 	unsigned int newcpu;
+	uint32_t cpticks;
 	int queue;
 
 	LIST_FOREACH(p, &allproc, p_list) {
@@ -256,22 +262,21 @@ schedcpu(void *unused)
 		/*
 		 * p_pctcpu is only for diagnostic tools such as ps.
 		 */
+		cpticks = atomic_load_int(&p->p_cpticks);
 #if	(FSHIFT >= CCPU_SHIFT)
-		pctcpu += (stathz == 100)?
-			((fixpt_t) p->p_cpticks) << (FSHIFT - CCPU_SHIFT):
-                	100 * (((fixpt_t) p->p_cpticks)
-				<< (FSHIFT - CCPU_SHIFT)) / stathz;
+		pctcpu += (stathz == 100) ?
+		    ((fixpt_t)cpticks) << (FSHIFT - CCPU_SHIFT) :
+		    100 * (((fixpt_t)cpticks) << (FSHIFT - CCPU_SHIFT)) /
+		    stathz;
 #else
 		pctcpu += ((FSCALE - ccpu) *
-			(p->p_cpticks * FSCALE / stathz)) >> FSHIFT;
+		    (cpticks * FSCALE / stathz)) >> FSHIFT;
 #endif
 		p->p_pctcpu = pctcpu;
-		p->p_cpticks = 0;
+		atomic_store_int(&p->p_cpticks, 0);
 
-		SCHED_LOCK();
-		newcpu = (u_int) decay_cpu(loadfac, p->p_estcpu);
+		newcpu = decay_cpu(loadfac, p->p_estcpu);
 		setpriority(p, newcpu, p->p_p->ps_nice);
-		SCHED_UNLOCK();
 	}
 
 	KERNEL_UNLOCK();
@@ -477,7 +482,6 @@ setrunnable(struct proc *p)
 	default:
 		panic("setrunnable");
 	case SSTOP:
-		prio = p->p_usrpri;
 		TRACEPOINT(sched, unstop, p->p_tid + THREAD_PID_OFFSET,
 		    p->p_p->ps_pid, CPU_INFO_UNIT(p->p_cpu));
 
@@ -500,16 +504,17 @@ setrunnable(struct proc *p)
 		break;
 	}
 
+	slptime = (nsecuptime() - p->p_lastsw) / 1000000000ULL;
+	newcpu = decay_aftersleep(p->p_estcpu, slptime);
+	setpriority(p, newcpu, pr->ps_nice);
+	if (p->p_stat == SSTOP)
+		prio = p->p_usrpri;
+
 	ci = sched_choosecpu(p);
 	pci = p->p_cpu;
 	sched_cpu_lock_both(ci, pci);
 	setrunqueue(ci, p, prio);
 	sched_cpu_unlock_both(ci, pci);
-
-	slptime = (nsecuptime() - p->p_lastsw) / 1000000000ULL;
-
-	newcpu = decay_aftersleep(p->p_estcpu, slptime);
-	setpriority(p, newcpu, pr->ps_nice);
 }
 
 /*
@@ -522,7 +527,6 @@ setpriority(struct proc *p, uint32_t newcpu, uint8_t nice)
 
 	newprio = min((PUSER + newcpu + NICE_WEIGHT * (nice - NZERO)), MAXPRI);
 
-	SCHED_ASSERT_LOCKED();
 	p->p_estcpu = newcpu;
 	p->p_usrpri = newprio;
 }
@@ -551,10 +555,9 @@ schedclock(struct proc *p)
 	if (p == spc->spc_idleproc || spc->spc_spinning)
 		return;
 
-	SCHED_LOCK();
-	newcpu = ESTCPULIM(p->p_estcpu + 1);
+	newcpu = p->p_estcpu;
+	newcpu = ESTCPULIM(newcpu + 1);
 	setpriority(p, newcpu, p->p_p->ps_nice);
-	SCHED_UNLOCK();
 }
 
 void (*cpu_setperf)(int);

@@ -319,7 +319,7 @@ statclock(struct clockrequest *cr, void *cf, void *arg)
 	pc_sprod_leave(&spc->spc_cp_time_lock, gen);
 
 	if (p != NULL) {
-		p->p_cpticks += count;
+		atomic_add_int(&p->p_cpticks, count);
 
 		if (!ISSET(p->p_flag, P_SYSTEM) && tu_tick != -1) {
 			struct vmspace *vm = p->p_vmspace;
