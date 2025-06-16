@@ -236,8 +236,11 @@ schedcpu(void *unused)
 {
 	static struct timeout to = TIMEOUT_INITIALIZER(schedcpu, NULL);
 	fixpt_t loadfac = loadfactor(averunnable.ldavg[0]), pctcpu;
-	struct proc *p;
+	CPU_INFO_ITERATOR cii;
+	struct cpu_info *ci;
+	struct proc *p, *np;
 	uint32_t newcpu, cpticks;
+	int queue;
 
 	LIST_FOREACH(p, &allproc, p_list) {
 		/*
@@ -273,22 +276,29 @@ schedcpu(void *unused)
 
 		newcpu = decay_cpu(loadfac, p->p_estcpu);
 		setpriority(p, newcpu, p->p_p->ps_nice);
+	}
 
-		if (p->p_stat == SRUN) {
-			sched_proc_cpu_lock(p);
+	CPU_INFO_FOREACH(cii, ci) {
+		struct schedstate_percpu *spc = &ci->ci_schedstate;
+
+		sched_cpu_lock(ci);
+		for (queue = 0; queue < SCHED_NQS; queue++) {
 #if 0
-			if (p->p_stat == SRUN &&
-			    (p->p_runpri / SCHED_PPQ) !=
-			    (p->p_usrpri / SCHED_PPQ)) {
+			TAILQ_FOREACH_SAFE(p, &spc->spc_qs[queue], p_runq, np) {
+				if ((p->p_runpri / SCHED_PPQ) !=
+				    (p->p_usrpri / SCHED_PPQ)) {
 #else
 			/* XXX for testing */
-			if (p->p_stat == SRUN) {
+			TAILQ_FOREACH_REVERSE_SAFE(p, &spc->spc_qs[queue],
+			    prochead, p_runq, np) {
+				if (1) {
 #endif
-				remrunqueue(p);
-				setrunqueue(p->p_cpu, p, p->p_usrpri);
+					remrunqueue(p);
+					setrunqueue(p->p_cpu, p, p->p_usrpri);
+				}
 			}
-			sched_cpu_unlock(p->p_cpu);
 		}
+		sched_cpu_unlock(ci);
 	}
 	wakeup(&lbolt);
 	timeout_add_sec(&to, 1);
