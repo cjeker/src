@@ -121,15 +121,18 @@ void
 __set_current_state(int state)
 {
 	struct proc *p = curproc;
+	struct mutex *mtx;
 
 	KASSERT(state == TASK_RUNNING);
-	SCHED_LOCK();
-	unsleep(p);
+
+	/* short version of sleep_finish(INFSLP, 0); */
+	if ((mtx = sleep_lock_enter(p)) != NULL)
+		unsleep(p);
 	sched_cpu_lock(curcpu());
 	p->p_stat = SONPROC;
 	atomic_clearbits_int(&p->p_flag, P_INSCHED);
 	sched_cpu_unlock(curcpu());
-	SCHED_UNLOCK();
+	sleep_lock_leave(mtx);
 }
 
 void
