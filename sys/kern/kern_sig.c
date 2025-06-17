@@ -889,8 +889,7 @@ proc_sched_lock(struct proc *p)
 			mtx = NULL;
 			break;
 		case SSLEEP:
-			mtx = &sched_lock;
-			mtx_enter(mtx);
+			mtx = sleep_lock_enter(p);
 			break;
 		case SONPROC:
 		case SRUN:
@@ -1116,10 +1115,8 @@ ptsignal_locked(struct proc *p, int signum, enum signal_type type)
 			/* Raise priority to at least PUSER. */
 			if (p->p_usrpri > PUSER)
 				p->p_usrpri = PUSER;
-			SCHED_LOCK();
-			unsleep(p);
+			unsleep_withlock(p);
 			setrunnable(p);
-			SCHED_UNLOCK();
 			goto out;
 		}
 
@@ -1142,9 +1139,7 @@ ptsignal_locked(struct proc *p, int signum, enum signal_type type)
 				/* Raise priority to at least PUSER. */
 				if (p->p_usrpri > PUSER)
 					p->p_usrpri = PUSER;
-				SCHED_LOCK();
-				unsleep(p);
-				SCHED_UNLOCK();
+				unsleep_withlock(p);
 			}
 
 			wakeparent = 1;
@@ -1174,9 +1169,7 @@ ptsignal_locked(struct proc *p, int signum, enum signal_type type)
 		 * the process runnable, leave it stopped.
 		 */
 		if (p->p_flag & P_SINTR) {
-			SCHED_LOCK();
-			unsleep(p);
-			SCHED_UNLOCK();
+			unsleep_withlock(p);
 		}
 		goto out;
 
@@ -1261,7 +1254,6 @@ ptsignal_locked(struct proc *p, int signum, enum signal_type type)
 		 */
 		if (p->p_usrpri > PUSER)
 			p->p_usrpri = PUSER;
-		SCHED_ASSERT_LOCKED();
 		unsleep(p);
 		setrunnable(p);
 		goto out;
@@ -1610,12 +1602,13 @@ process_continue(struct process *pr, int flag)
 		 */
 		if (q->p_stat == SSTOP &&
 		    ISSET(q->p_flag, P_SUSPSIG | P_SUSPSINGLE) == 0) {
-			SCHED_LOCK();
-			if (q->p_wchan == NULL)
+			struct mutex *mtx;
+
+			if ((mtx = sleep_lock_enter(q)) == NULL)
 				setrunnable(q);
 			else
 				q->p_stat = SSLEEP;
-			SCHED_UNLOCK();
+			sleep_lock_leave(mtx);
 		}
 	}
 }
@@ -1649,10 +1642,8 @@ process_stop(struct process *pr, int flag, int mode)
 		switch (q->p_stat) {
 		case SSTOP:
 			if (mode == SINGLE_EXIT) {
-				SCHED_LOCK();
-				unsleep(q);
+				unsleep_withlock(q);
 				setrunnable(q);
-				SCHED_UNLOCK();
 			} else
 				--pr->ps_suspendcnt;
 			break;

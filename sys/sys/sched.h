@@ -217,14 +217,7 @@ void remrunqueue(struct proc *);
 #define	SCHED_CPU_ASSERT_UNLOCKED()			\
 		MUTEX_ASSERT_UNLOCKED(&ci->ci_schedstate.spc_sched_lock)
 
-extern struct mutex sched_lock;
-
-#define	SCHED_ASSERT_LOCKED()	MUTEX_ASSERT_LOCKED(&sched_lock)
-#define	SCHED_ASSERT_UNLOCKED()	MUTEX_ASSERT_UNLOCKED(&sched_lock)
-
-#define	SCHED_LOCK_INIT()	mtx_init(&sched_lock, IPL_SCHED)
-#define	SCHED_LOCK()		mtx_enter(&sched_lock)
-#define	SCHED_UNLOCK()		mtx_leave(&sched_lock)
+#define	SCHED_ASSERT_UNLOCKED()		/* nothing */
 
 #endif	/* _KERNEL */
 #endif	/* _SYS_SCHED_H_ */

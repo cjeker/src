@@ -73,6 +73,35 @@ int	sleep_signal_check(struct proc *, int);
 #define LOOKUP(x)	(((long)(x) >> 8) & (TABLESIZE - 1))
 TAILQ_HEAD(slpque,proc) slpque[TABLESIZE];
 
+struct mutex	sleep_mtx = MUTEX_INITIALIZER_FLAGS(IPL_SCHED, "sleep_mtx", 0);
+
+struct mutex *
+sleep_lock_byident(const volatile void *ident)
+{
+	if (ident == NULL)
+		return NULL;
+	mtx_enter(&sleep_mtx);
+	return &sleep_mtx;
+}
+
+struct mutex *
+sleep_lock_enter(struct proc *p)
+{
+	const volatile void *ident;
+	struct mutex *mtx;
+
+	do {
+		ident = p->p_wchan;
+		if ((mtx = sleep_lock_byident(ident)) == NULL)
+			return NULL;
+		if (ident == p->p_wchan)
+			break;
+		mtx_leave(mtx);
+	} while (1);
+
+	return mtx;
+}
+
 void
 sleep_queue_init(void)
 {
@@ -284,6 +313,7 @@ void
 sleep_setup(const volatile void *ident, int prio, const char *wmesg)
 {
 	struct proc *p = curproc;
+	struct mutex *mtx;
 
 #ifdef DIAGNOSTIC
 	if (p->p_flag & P_CANTSLEEP)
@@ -297,22 +327,23 @@ sleep_setup(const volatile void *ident, int prio, const char *wmesg)
 	if (p->p_flag & P_WEXIT)
 		CLR(prio, PCATCH);
 
-	SCHED_LOCK();
+	mtx = sleep_lock_byident(ident);
 
 	TRACEPOINT(sched, sleep, NULL);
 
 	p->p_wchan = ident;
 	p->p_wmesg = wmesg;
 	p->p_slppri = prio & PRIMASK;
-	atomic_setbits_int(&p->p_flag, P_INSCHED);
 	TAILQ_INSERT_TAIL(&slpque[LOOKUP(ident)], p, p_runq);
 	if (prio & PCATCH)
 		atomic_setbits_int(&p->p_flag, P_SINTR);
-	sched_cpu_lock(curcpu());
-	p->p_stat = SSLEEP;
-	sched_cpu_unlock(curcpu());
 
-	SCHED_UNLOCK();
+	sched_cpu_lock(curcpu());
+	atomic_setbits_int(&p->p_flag, P_INSCHED);
+	p->p_stat = SSLEEP;
+
+	sched_cpu_unlock(curcpu());
+	sleep_lock_leave(mtx);
 }
 
 int
@@ -320,6 +351,7 @@ sleep_finish(uint64_t nsecs, int do_sleep)
 {
 	struct proc *p = curproc;
 	int catch, error = 0, error1 = 0;
+	struct mutex *mtx;
 
 #ifdef DIAGNOSTIC
 	if (nsecs == 0) {
@@ -342,7 +374,7 @@ sleep_finish(uint64_t nsecs, int do_sleep)
 		}
 	}
 
-	SCHED_LOCK();
+	mtx = sleep_lock_enter(p);
 	/*
 	 * A few checks need to happen before going to sleep:
 	 * - If the wakeup happens while going to sleep, p->p_wchan
@@ -353,10 +385,11 @@ sleep_finish(uint64_t nsecs, int do_sleep)
 	 * - If requested to stop force a switch even if the sleep
 	 * condition got cleared.
 	 */
-	if (p->p_wchan == NULL)
+	if (mtx == NULL)
 		do_sleep = 0;
-	if (do_sleep == 0)
+	if (do_sleep == 0 && mtx != NULL)
 		unsleep(p);
+	/* XXX what about here. Do we need to swap locks? */
 	if (p->p_stat == SSTOP)
 		do_sleep = 1;
 	atomic_clearbits_int(&p->p_flag, P_INSCHED);
@@ -368,13 +401,13 @@ sleep_finish(uint64_t nsecs, int do_sleep)
 		sched_cpu_lock(curcpu());
 		next = sched_chooseproc();
 		sched_cpu_unlock(curcpu());
-		mi_switch(next, &sched_lock);
+		mi_switch(next, mtx);
 	} else {
 		KASSERT(p->p_stat == SONPROC || p->p_stat == SSLEEP);
 		sched_cpu_lock(curcpu());
 		p->p_stat = SONPROC;
 		sched_cpu_unlock(curcpu());
-		SCHED_UNLOCK();
+		sleep_lock_leave(mtx);
 	}
 
 #ifdef DIAGNOSTIC
@@ -462,9 +495,8 @@ sleep_signal_check(struct proc *p, int after_sleep)
 			mtx_enter(&pr->ps_mtx);
 			process_suspend_signal(pr);
 
-			SCHED_LOCK();
+			/* XXX no need for sleep lock, we're curproc */
 			p->p_stat = SSTOP;
-			SCHED_UNLOCK();
 			mtx_leave(&pr->ps_mtx);
 		}
 	}
@@ -485,9 +517,8 @@ sleep_signal_check(struct proc *p, int after_sleep)
 				process_stop(pr, P_SUSPSIG, SINGLE_SUSPEND);
 				atomic_setbits_int(&p->p_flag, P_SUSPSIG);
 				process_suspend_signal(pr);
-				SCHED_LOCK();
+				/* XXX no need for sleep lock, we're curproc */
 				p->p_stat = SSTOP;
-				SCHED_UNLOCK();
 				mtx_leave(&pr->ps_mtx);
 			}
 		} else if (ctx.sig_intr && !ctx.sig_ignore)
@@ -506,22 +537,21 @@ sleep_signal_check(struct proc *p, int after_sleep)
 int
 wakeup_proc(struct proc *p)
 {
-	int awakened = 0;
+	struct mutex *mtx;
 
-	SCHED_LOCK();
-	if (p->p_wchan != NULL) {
-		awakened = 1;
+	if ((mtx = sleep_lock_enter(p)) == NULL)
+		return 0;
+
 #ifdef DIAGNOSTIC
-		if (p->p_stat != SSLEEP && p->p_stat != SSTOP)
-			panic("thread %d p_stat is %d", p->p_tid, p->p_stat);
+	if (p->p_stat != SSLEEP && p->p_stat != SSTOP)
+		panic("thread %d p_stat is %d", p->p_tid, p->p_stat);
 #endif
-		unsleep(p);
-		if (p->p_stat == SSLEEP)
-			setrunnable(p);
-	}
-	SCHED_UNLOCK();
+	unsleep(p);
+	if (p->p_stat == SSLEEP)
+		setrunnable(p);
+	sleep_lock_leave(mtx);
 
-	return awakened;
+	return 1;
 }
 
 
@@ -556,15 +586,25 @@ endtsleep(void *arg)
 void
 unsleep(struct proc *p)
 {
-	SCHED_ASSERT_LOCKED();
-
 	if (p->p_wchan != NULL) {
+		MUTEX_ASSERT_LOCKED(&sleep_mtx); /* XXX */
 		TAILQ_REMOVE(&slpque[LOOKUP(p->p_wchan)], p, p_runq);
 		p->p_wchan = NULL;
 		p->p_wmesg = NULL;
 		TRACEPOINT(sched, unsleep, p->p_tid + THREAD_PID_OFFSET,
 		    p->p_p->ps_pid);
 	}
+}
+
+void
+unsleep_withlock(struct proc *p)
+{
+	struct mutex *mtx;
+
+	if ((mtx = sleep_lock_enter(p)) == NULL)
+		return;
+	unsleep(p);
+	sleep_lock_leave(mtx);
 }
 
 /*
@@ -576,10 +616,12 @@ wakeup_n(const volatile void *ident, int n)
 	struct slpque *qp, wakeq;
 	struct proc *p;
 	struct proc *pnext;
+	struct mutex *mtx;
 
 	TAILQ_INIT(&wakeq);
 
-	SCHED_LOCK();
+	mtx = sleep_lock_byident(ident);
+	KASSERT(mtx != NULL);
 	qp = &slpque[LOOKUP(ident)];
 	for (p = TAILQ_FIRST(qp); p != NULL && n != 0; p = pnext) {
 		pnext = TAILQ_NEXT(p, p_runq);
@@ -596,6 +638,7 @@ wakeup_n(const volatile void *ident, int n)
 			--n;
 		}
 	}
+
 	while ((p = TAILQ_FIRST(&wakeq))) {
 		TAILQ_REMOVE(&wakeq, p, p_runq);
 		TRACEPOINT(sched, unsleep, p->p_tid + THREAD_PID_OFFSET,
@@ -603,7 +646,7 @@ wakeup_n(const volatile void *ident, int n)
 		if (p->p_stat == SSLEEP)
 			setrunnable(p);
 	}
-	SCHED_UNLOCK();
+	sleep_lock_leave(mtx);
 }
 
 /*
