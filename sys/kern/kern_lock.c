@@ -34,7 +34,7 @@
 #endif
 
 /* CPU-dependent timing, this needs to be settable from ddb. */
-int __mp_lock_spinout = INT_MAX;
+long __mp_lock_spinout = 500L * INT_MAX;
 #endif /* MP_LOCKDEBUG */
 
 extern int ncpusfound;
@@ -124,7 +124,7 @@ __mp_lock_spin(struct __mp_lock *mpl, u_int me)
 {
 	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
 #ifdef MP_LOCKDEBUG
-	int nticks = __mp_lock_spinout;
+	long nticks = __mp_lock_spinout;
 #endif
 
 	spc->spc_spinning++;
@@ -247,6 +247,9 @@ mtx_enter(struct mutex *mtx)
 {
 	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
 	unsigned int i, ncycle = CPU_MIN_BUSY_CYCLES;
+#ifdef MP_LOCKDEBUG
+	long nticks = __mp_lock_spinout;
+#endif
 
 	WITNESS_CHECKORDER(MUTEX_LOCK_OBJECT(mtx),
 	    LOP_EXCLUSIVE | LOP_NEWORDER, NULL);
@@ -254,6 +257,13 @@ mtx_enter(struct mutex *mtx)
 	spc->spc_spinning++;
 	while (mtx_enter_try(mtx) == 0) {
 		do {
+#ifdef MP_LOCKDEBUG
+			if ((nticks -= ncycle) <= 0) {
+				db_printf("%s: %p lock spun out\n", __func__, mtx);
+				db_enter();
+				nticks = __mp_lock_spinout;
+			}
+#endif
 			/* Busy loop with exponential backoff. */
 			for (i = ncycle; i > 0; i--)
 				CPU_BUSY_CYCLE();
