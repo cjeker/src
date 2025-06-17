@@ -517,10 +517,8 @@ ptrace_ctrl(struct proc *p, int req, pid_t pid, caddr_t addr, int data)
 				atomic_setbits_int(&t->p_flag,
 				    P_TRACESINGLE);
 			tr->ps_xsig = data;
-			SCHED_LOCK();
-			unsleep(t);
+			unsleep_withlock(t);
 			setrunnable(t);
-			SCHED_UNLOCK();
 			mtx_leave(&tr->ps_mtx);
 		} else if (pid < THREAD_PID_OFFSET) {
 			mtx_leave(&tr->ps_mtx);

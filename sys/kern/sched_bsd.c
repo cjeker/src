@@ -57,8 +57,6 @@
 uint64_t roundrobin_period;	/* [I] roundrobin period (ns) */
 int	lbolt;			/* once a second sleep address */
 
-struct mutex sched_lock;
-
 void			update_loadavg(void *);
 void			schedcpu(void *);
 uint32_t		decay_aftersleep(uint32_t, uint32_t);
@@ -471,11 +469,10 @@ setrunnable(struct proc *p)
 {
 	struct process *pr = p->p_p;
 	struct cpu_info *ci, *pci;
+	struct mutex *mtx;
 	u_char prio;
 	uint64_t slptime;
 	uint32_t newcpu;
-
-	SCHED_ASSERT_LOCKED();
 
 	switch (p->p_stat) {
 	case 0:
@@ -486,15 +483,18 @@ setrunnable(struct proc *p)
 	default:
 		panic("setrunnable");
 	case SSTOP:
+		MUTEX_ASSERT_LOCKED(&pr->ps_mtx);
+
 		TRACEPOINT(sched, unstop, p->p_tid + THREAD_PID_OFFSET,
 		    p->p_p->ps_pid, CPU_INFO_UNIT(p->p_cpu));
 
 		/* If not yet stopped or asleep, unstop but don't add to runq */
 		if (ISSET(p->p_flag, P_INSCHED)) {
-			if (p->p_wchan != NULL)
-				p->p_stat = SSLEEP;
-			else
+			if ((mtx = sleep_lock_enter(p)) == NULL)
 				p->p_stat = SONPROC;
+			else
+				p->p_stat = SSLEEP;
+			sleep_lock_leave(mtx);
 			return;
 		}
 		break;
