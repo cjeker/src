@@ -250,6 +250,9 @@ mtx_enter(struct mutex *mtx)
 {
 	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
 	unsigned int i, ncycle = CPU_MIN_BUSY_CYCLES;
+#ifdef MP_LOCKDEBUG
+	long nticks = __mp_lock_spinout;
+#endif
 
 	WITNESS_CHECKORDER(MUTEX_LOCK_OBJECT(mtx),
 	    LOP_EXCLUSIVE | LOP_NEWORDER, NULL);
@@ -257,6 +260,13 @@ mtx_enter(struct mutex *mtx)
 	spc->spc_spinning++;
 	while (mtx_enter_try(mtx) == 0) {
 		do {
+#ifdef MP_LOCKDEBUG
+			if ((nticks -= ncycle) <= 0) {
+				db_printf("%s: %p lock spun out\n", __func__, mtx);
+				db_enter();
+				nticks = __mp_lock_spinout;
+			}
+#endif
 			/* Busy loop with exponential backoff. */
 			for (i = ncycle; i > 0; i--)
 				CPU_BUSY_CYCLE();
