@@ -260,6 +260,13 @@ mtx_enter(struct mutex *mtx)
 	spc->spc_spinning++;
 	while (mtx_enter_try(mtx) == 0) {
 		do {
+#ifdef MP_LOCKDEBUG
+			if ((nticks -= ncycle) <= 0) {
+				db_printf("%s: %p lock spun out\n", __func__, mtx);
+				db_enter();
+				nticks = __mp_lock_spinout;
+			}
+#endif
 			/* Busy loop with exponential backoff. */
 			for (i = ncycle; i > 0; i--)
 				CPU_BUSY_CYCLE();
