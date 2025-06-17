@@ -195,7 +195,6 @@ main(void *framep)
 	WITNESS_INITIALIZE();
 
 	KERNEL_LOCK_INIT();
-	SCHED_LOCK_INIT();
 
 	rw_obj_init();
 	uvm_init();
