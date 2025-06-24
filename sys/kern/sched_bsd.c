@@ -412,6 +412,7 @@ mi_switch(struct proc *nextproc, struct mutex *mtx)
 		uvmexp.swtch++;
 		TRACEPOINT(sched, off__cpu, nextproc->p_tid + THREAD_PID_OFFSET,
 		    nextproc->p_p->ps_pid);
+		KASSERT(nextproc->p_stat == SRUN);
 		cpu_switchto(p, nextproc);
 		TRACEPOINT(sched, on__cpu, NULL);
 	} else {
