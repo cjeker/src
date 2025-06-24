@@ -53,12 +53,14 @@ __ppc_lock_spin(struct __ppc_lock *mpl)
 #else
 	long nticks = __mp_lock_spinout;
 
-	while (mpl->mpl_cpu != NULL && --nticks > 0)
+	while (mpl->mpl_cpu != NULL) {
 		CPU_BUSY_CYCLE();
 
-	if (nticks == 0) {
-		db_printf("__ppc_lock(%p): lock spun out\n", mpl);
-		db_enter();
+		if (nticks-- <= 0) {
+			db_printf("__ppc_lock(%p): lock spun out\n", mpl);
+			db_enter();
+			nticks = __mp_lock_spinout;
+		}
 	}
 #endif
 }
