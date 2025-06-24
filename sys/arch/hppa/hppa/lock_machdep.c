@@ -81,12 +81,14 @@ __mp_lock_spin(struct __mp_lock *mpl)
 #else
 	long nticks = __mp_lock_spinout;
 
-	while (mpl->mpl_count != 0 && --nticks > 0)
+	while (mpl->mpl_count != 0) {
 		CPU_BUSY_CYCLE();
 
-	if (nticks == 0) {
-		db_printf("__mp_lock(%p): lock spun out", mpl);
-		db_enter();
+		if (--nticks <= 0) {
+			db_printf("__mp_lock(%p): lock spun out", mpl);
+			db_enter();
+			nticks = __mp_lock_spinout;
+		}
 	}
 #endif
 }
