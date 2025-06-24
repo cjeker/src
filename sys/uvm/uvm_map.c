@@ -3398,6 +3398,7 @@ uvmspace_exec(struct proc *p, vaddr_t start, vaddr_t end)
 void
 uvmspace_addref(struct vmspace *vm)
 {
+	KERNEL_ASSERT_LOCKED();
 	KASSERT(vm->vm_refcnt > 0);
 	atomic_inc_int(&vm->vm_refcnt);
 }
