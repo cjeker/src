@@ -531,6 +531,59 @@ db_show_panic_cmd(db_expr_t addr, int have_addr, db_expr_t count, char *modif)
 		db_printf("the kernel did not panic\n");	/* yet */
 }
 
+#ifdef MULTIPROCESSOR
+static void
+cpu_print(struct cpu_info *ci)
+{
+	db_printf("%c%4d: ", (ci == curcpu()) ? '*' : ' ', CPU_INFO_UNIT(ci));
+	switch(ci->ci_ddb_paused) {
+	case CI_DDB_RUNNING:
+		db_printf("running\n");
+		break;
+	case CI_DDB_SHOULDSTOP:
+		db_printf("stopping\n");
+		break;
+	case CI_DDB_STOPPED:
+		db_printf("stopped\n");
+		break;
+	case CI_DDB_ENTERDDB:
+		db_printf("entering ddb\n");
+		break;
+	case CI_DDB_INDDB:
+		db_printf("ddb\n");
+		break;
+	default:
+		db_printf("? (%d)\n",
+		    ci->ci_ddb_paused);
+		break;
+	}
+}
+
+static void
+db_show_cpu_cmd(db_expr_t addr, int have_addr, db_expr_t count, char *modif)
+{
+	struct cpu_info *ci;
+
+	if (!have_addr)
+		ci = curcpu();
+	else
+		ci = (void *)addr;
+
+	cpu_print(ci);
+}
+
+static void
+db_show_all_cpu(db_expr_t addr, int have_addr, db_expr_t count, char *modif)
+{
+	struct cpu_info *ci;
+	CPU_INFO_ITERATOR cii;
+
+	CPU_INFO_FOREACH(cii, ci) {
+		cpu_print(ci);
+	}
+}
+#endif
+
 void
 db_extent_print_cmd(db_expr_t addr, int have_addr, db_expr_t count, char *modif)
 {
@@ -594,6 +647,9 @@ const struct db_command db_show_all_cmds[] = {
 	{ "procs",	db_show_all_procs,	0, NULL },
 	{ "callout",	db_show_callout,	0, NULL },
 	{ "clockintr",	db_show_all_clockintr,	0, NULL },
+#ifdef MULTIPROCESSOR
+	{ "cpu",	db_show_all_cpu,	0, NULL },
+#endif
 	{ "pools",	db_show_all_pools,	0, NULL },
 	{ "mounts",	db_show_all_mounts,	0, NULL },
 	{ "vnodes",	db_show_all_vnodes,	0, NULL },
@@ -617,6 +673,9 @@ const struct db_command db_show_cmds[] = {
 	{ "bcstats",	db_bcstats_print_cmd,	0,	NULL },
 	{ "breaks",	db_listbreak_cmd,	0,	NULL },
 	{ "buf",	db_buf_print_cmd,	0,	NULL },
+#ifdef MULTIPROCESSOR
+	{ "cpu",	db_show_cpu_cmd,	0,	NULL },
+#endif
 	{ "extents",	db_extent_print_cmd,	0,	NULL },
 #ifdef WITNESS
 	{ "locks",	db_witness_list,	0,	NULL },
