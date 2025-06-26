@@ -133,6 +133,7 @@ struct schedstate_percpu {
 	volatile u_int spc_spinning;	/* [o] this cpu is currently spinning */
 
 	void *spc_spin_retaddr;		/* [o] return address of current spin */
+	struct proc *spc_prevproc;	/* [o] prev proc of last cpu_switchto */
 
 	SIMPLEQ_HEAD(, smr_entry) spc_deferred; /* deferred smr calls */
 	u_int spc_ndeferred;		/* number of deferred smr calls */
