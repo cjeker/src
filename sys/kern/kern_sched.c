@@ -303,6 +303,7 @@ sched_toidle(void)
 		TRACEPOINT(sched, off__cpu, idle->p_tid + THREAD_PID_OFFSET,
 		    idle->p_p->ps_pid);
 	KASSERT(idle->p_stat == SRUN);
+	spc->spc_prevproc = NULL;
 	cpu_switchto(NULL, idle);
 	panic("cpu_switchto returned");
 }

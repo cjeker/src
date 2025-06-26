@@ -402,6 +402,7 @@ mi_switch(struct proc *nextproc, struct mutex *mtx)
 	/* preserve old IPL level so we can switch back to that */
 	oldipl = MUTEX_OLDIPL(spc->spc_mtx);
 
+	spc->spc_prevproc = p;
 	if (p != nextproc) {
 		uvmexp.swtch++;
 		TRACEPOINT(sched, off__cpu, nextproc->p_tid + THREAD_PID_OFFSET,
