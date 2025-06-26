@@ -131,6 +131,7 @@ __mp_lock_spin(struct __mp_lock *mpl, u_int me)
 #endif
 
 	spc->spc_spinning++;
+	spc->spc_spin_retaddr = __builtin_return_address(0);
 	while (mpl->mpl_ticket != me) {
 		CPU_BUSY_CYCLE();
 
@@ -143,6 +144,7 @@ __mp_lock_spin(struct __mp_lock *mpl, u_int me)
 #endif
 	}
 	spc->spc_spinning--;
+	spc->spc_spin_retaddr = NULL;
 }
 
 void
@@ -258,6 +260,7 @@ mtx_enter(struct mutex *mtx)
 	    LOP_EXCLUSIVE | LOP_NEWORDER, NULL);
 
 	spc->spc_spinning++;
+	spc->spc_spin_retaddr = __builtin_return_address(0);
 	while (mtx_enter_try(mtx) == 0) {
 		do {
 #ifdef MP_LOCKDEBUG
@@ -282,6 +285,7 @@ mtx_enter(struct mutex *mtx)
 		} while (mtx->mtx_owner != NULL);
 	}
 	spc->spc_spinning--;
+	spc->spc_spin_retaddr = NULL;
 }
 
 int
