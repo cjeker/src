@@ -139,6 +139,7 @@ __mp_lock_spin(struct __mp_lock *mpl, u_int me)
 #endif
 
 	spc->spc_spinning++;
+	spc->spc_spin_retaddr = __builtin_return_address(0);
 	while (mpl->mpl_ticket != me) {
 		CPU_BUSY_CYCLE();
 
@@ -151,6 +152,7 @@ __mp_lock_spin(struct __mp_lock *mpl, u_int me)
 #endif
 	}
 	spc->spc_spinning--;
+	spc->spc_spin_retaddr = NULL;
 }
 
 void
@@ -419,6 +421,7 @@ mtx_enter(struct mutex *mtx)
 
 	/* we're going to have to spin for it now */
 	spc->spc_spinning++;
+	spc->spc_spin_retaddr = __builtin_return_address(0);
 
 	for (spins = 0; spins < 40; spins++) {
 		if (ISSET(owner, 1)) {
@@ -476,6 +479,7 @@ mtx_enter(struct mutex *mtx)
 	mtx_leave_park(p, m);
 spinlocked:
 	spc->spc_spinning--;
+	spc->spc_spin_retaddr = NULL;
 locked:
 	membar_enter_after_atomic();
 	if (mtx->mtx_wantipl != IPL_NONE)

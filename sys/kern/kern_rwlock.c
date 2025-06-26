@@ -261,6 +261,7 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 		 */
 
 		spc->spc_spinning++;
+		spc->spc_spin_retaddr = __builtin_return_address(0);
 		for (spins = 0; spins < RW_SPINS; spins++) {
 			CPU_BUSY_CYCLE();
 			owner = atomic_load_long(&rwl->rwl_owner);
@@ -270,6 +271,7 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 			owner = rw_cas(&rwl->rwl_owner, 0, self);
 			if (owner == 0) {
 				spc->spc_spinning--;
+				spc->spc_spin_retaddr = NULL;
 				/* ok, we won now. */
 				TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 2,
 				    2);
@@ -277,6 +279,7 @@ rw_do_enter_write(struct rwlock *rwl, int flags)
 			}
 		}
 		spc->spc_spinning--;
+		spc->spc_spin_retaddr = NULL;
 	}
 #endif
 
