@@ -318,6 +318,8 @@ setrunqueue(struct cpu_info *ci, struct proc *p, uint8_t prio)
 	SCHED_CPU_ASSERT_LOCKED(ci);
 	KASSERT(p->p_wchan == NULL);
 	KASSERT(!ISSET(p->p_flag, P_INSCHED));
+	if (p->p_stat == SONPROC)
+		SCHED_CPU_ASSERT_LOCKED(p->p_cpu);
 
 	p->p_cpu = ci;
 	p->p_stat = SRUN;
