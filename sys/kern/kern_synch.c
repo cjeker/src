@@ -78,8 +78,8 @@ struct mutex	sleep_mtx = MUTEX_INITIALIZER_FLAGS(IPL_SCHED, "sleep_mtx", 0);
 struct mutex *
 sleep_lock_byident(const volatile void *ident)
 {
-	if (ident == NULL)
-		return NULL;
+//XXX	if (ident == NULL)
+//XXX		return NULL;
 	mtx_enter(&sleep_mtx);
 	return &sleep_mtx;
 }
@@ -91,14 +91,17 @@ sleep_lock_enter(struct proc *p)
 	struct mutex *mtx;
 
 	do {
-		ident = p->p_wchan;
-		if ((mtx = sleep_lock_byident(ident)) == NULL)
-			return NULL;
-		if (ident == p->p_wchan)
+		ident = READ_ONCE(p->p_wchan);
+		mtx = sleep_lock_byident(ident);
+		if (ident == READ_ONCE(p->p_wchan))
 			break;
 		mtx_leave(mtx);
 	} while (1);
 
+	if (ident == NULL) {
+		mtx_leave(mtx);
+		mtx = NULL;
+	}
 	return mtx;
 }
 
@@ -546,6 +549,7 @@ wakeup_proc(struct proc *p)
 	if (p->p_stat != SSLEEP && p->p_stat != SSTOP)
 		panic("thread %d p_stat is %d", p->p_tid, p->p_stat);
 #endif
+	KASSERT(mtx != NULL);
 	unsleep(p);
 	if (p->p_stat == SSLEEP)
 		setrunnable(p);
