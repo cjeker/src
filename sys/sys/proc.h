@@ -379,6 +379,8 @@ struct proc {
 	const volatile void *p_wchan;	/* [z] Sleep address. */
 	struct	timeout p_sleep_to;	/* [o] timeout for tsleep() */
 	const char *p_wmesg;		/* [z] Reason for sleep. */
+	const char *p_last_wmesg;	/* [z] Reason for last sleep. */
+	const char *p_last_wmesg;	/* [z] Reason for last sleep. */
 	volatile fixpt_t p_pctcpu;	/* [a] %cpu for this thread */
 	struct	cpu_info * volatile p_cpu; /* [s] CPU we're running on. */
 
