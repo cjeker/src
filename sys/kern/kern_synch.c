@@ -590,6 +590,7 @@ unsleep(struct proc *p)
 		MUTEX_ASSERT_LOCKED(&sleep_mtx); /* XXX */
 		TAILQ_REMOVE(&slpque[LOOKUP(p->p_wchan)], p, p_runq);
 		p->p_wchan = NULL;
+		p->p_last_wmesg = p->p_wmesg;
 		p->p_wmesg = NULL;
 		TRACEPOINT(sched, unsleep, p->p_tid + THREAD_PID_OFFSET,
 		    p->p_p->ps_pid);
