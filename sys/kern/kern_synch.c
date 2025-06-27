@@ -341,8 +341,8 @@ sleep_setup(const volatile void *ident, int prio, const char *wmesg)
 	sched_cpu_lock(curcpu());
 	atomic_setbits_int(&p->p_flag, P_INSCHED);
 	p->p_stat = SSLEEP;
-	sched_cpu_unlock(curcpu());
 
+	sched_cpu_unlock(curcpu());
 	sleep_lock_leave(mtx);
 }
 
