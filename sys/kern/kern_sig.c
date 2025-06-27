@@ -1604,7 +1604,7 @@ process_continue(struct process *pr, int flag)
 		    ISSET(q->p_flag, P_SUSPSIG | P_SUSPSINGLE) == 0) {
 			struct mutex *mtx;
 
-			if ((mtx = sleep_lock_enter(p)) == NULL)
+			if ((mtx = sleep_lock_enter(q)) == NULL)
 				setrunnable(q);
 			else
 				q->p_stat = SSLEEP;
