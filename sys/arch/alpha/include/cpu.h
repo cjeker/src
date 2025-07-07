@@ -185,6 +185,8 @@ struct cpu_info {
 	struct schedstate_percpu ci_schedstate;	/* scheduler state */
 #ifdef DIAGNOSTIC
 	int	ci_mutex_level;
+	struct mutex *ci_mutex_ptr[MTX_NUM];
+	void *ci_mutex_retaddr[MTX_NUM];
 #endif
 	cpuid_t ci_cpuid;		/* our CPU ID */
 	struct cpu_info *ci_next;
