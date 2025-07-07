@@ -110,6 +110,8 @@ struct cpu_info {
 	u_int32_t	ci_randseed;
 #ifdef DIAGNOSTIC
 	int		ci_mutex_level;
+	struct mutex	*ci_mutex_ptr[MTX_NUM];
+	void		*ci_mutex_retaddr[MTX_NUM];
 #endif
 #ifdef GPROF
 	struct gmonparam *ci_gmon;
