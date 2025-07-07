@@ -99,7 +99,8 @@ struct cpustats {
 #include <sys/queue.h>
 #include <sys/pclock.h>
 
-#define	SCHED_NQS	32			/* 32 run queues. */
+#define	SCHED_NQS	32		/* 32 run queues. */
+#define	MTX_NUM		8		/* track how many mtx in cpu_info */
 
 struct smr_entry;
 

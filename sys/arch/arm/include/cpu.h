@@ -176,6 +176,8 @@ struct cpu_info {
 	uint32_t		ci_idepth;
 #ifdef DIAGNOSTIC
 	int			ci_mutex_level;
+	struct mutex		*ci_mutex_ptr[MTX_NUM];
+	void			*ci_mutex_retaddr[MTX_NUM];
 #endif
 	int			ci_want_resched;
 

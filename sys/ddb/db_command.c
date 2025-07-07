@@ -538,23 +538,22 @@ cpu_print(struct cpu_info *ci, int verbose)
 	db_printf("%c%4d: ", (ci == curcpu()) ? '*' : ' ', CPU_INFO_UNIT(ci));
 	switch(ci->ci_ddb_paused) {
 	case CI_DDB_RUNNING:
-		db_printf("running");
+		db_printf("running     ");
 		break;
 	case CI_DDB_SHOULDSTOP:
-		db_printf("stopping");
+		db_printf("stopping    ");
 		break;
 	case CI_DDB_STOPPED:
-		db_printf("stopped");
+		db_printf("stopped     ");
 		break;
 	case CI_DDB_ENTERDDB:
 		db_printf("entering ddb");
 		break;
 	case CI_DDB_INDDB:
-		db_printf("ddb");
+		db_printf("ddb         ");
 		break;
 	default:
-		db_printf("? (%d)",
-		    ci->ci_ddb_paused);
+		db_printf("? (%d)      ", ci->ci_ddb_paused);
 		break;
 	}
 
@@ -564,6 +563,16 @@ cpu_print(struct cpu_info *ci, int verbose)
 	db_printf(" ipl %d", ci->ci_handled_intr_level);
 #endif
 	db_printf("\n");
+
+	if (verbose && ci->ci_mutex_level > 0) {
+		int i;
+
+		db_printf("    mutexes:\n");
+		for (i = 0; i < ci->ci_mutex_level; i++) {
+			db_printf("\t%d: mtx %p retaddr %p\n", i,
+			    ci->ci_mutex_ptr[i], ci->ci_mutex_retaddr[i]);
+		}
+	}
 }
 
 static void
@@ -594,9 +603,13 @@ db_show_all_cpu(db_expr_t addr, int have_addr, db_expr_t count, char *modif)
 {
 	struct cpu_info *ci;
 	CPU_INFO_ITERATOR cii;
+	int verbose = 0;
+
+	if (modif[0] == 'v')
+		verbose = 1;
 
 	CPU_INFO_FOREACH(cii, ci) {
-		cpu_print(ci, 0);
+		cpu_print(ci, verbose);
 	}
 }
 #endif
