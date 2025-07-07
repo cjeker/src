@@ -310,6 +310,11 @@ mtx_enter_try(struct mutex *mtx)
 			if (mtx->mtx_wantipl != IPL_NONE)
 				mtx->mtx_oldipl = s;
 #ifdef DIAGNOSTIC
+			if (__predict_true(ci->ci_mutex_level < MTX_NUM)) {
+				ci->ci_mutex_ptr[ci->ci_mutex_level] = mtx;
+				ci->ci_mutex_retaddr[ci->ci_mutex_level] =
+				    __builtin_return_address(0);
+			}
 			ci->ci_mutex_level++;
 #endif
 			WITNESS_LOCK(MUTEX_LOCK_OBJECT(mtx), LOP_EXCLUSIVE);
@@ -346,6 +351,11 @@ mtx_enter(struct mutex *mtx)
 	mtx->mtx_owner = ci;
 
 #ifdef DIAGNOSTIC
+	if (__predict_true(ci->ci_mutex_level < MTX_NUM)) {
+		ci->ci_mutex_ptr[ci->ci_mutex_level] = mtx;
+		ci->ci_mutex_retaddr[ci->ci_mutex_level] =
+		    __builtin_return_address(0);
+	}
 	ci->ci_mutex_level++;
 #endif
 	WITNESS_LOCK(MUTEX_LOCK_OBJECT(mtx), LOP_EXCLUSIVE);
@@ -362,6 +372,7 @@ mtx_enter_try(struct mutex *mtx)
 void
 mtx_leave(struct mutex *mtx)
 {
+	struct cpu_info *ci = curcpu();
 	int s;
 
 	/* Avoid deadlocks after panic or in DDB */
@@ -372,7 +383,10 @@ mtx_leave(struct mutex *mtx)
 	WITNESS_UNLOCK(MUTEX_LOCK_OBJECT(mtx), LOP_EXCLUSIVE);
 
 #ifdef DIAGNOSTIC
-	curcpu()->ci_mutex_level--;
+	KASSERT(ci->ci_mutex_level > 0);
+	ci->ci_mutex_level--;
+	ci->ci_mutex_ptr[ci->ci_mutex_level] = NULL;
+	ci->ci_mutex_retaddr[ci->ci_mutex_level] = NULL;
 #endif
 
 	s = mtx->mtx_oldipl;
@@ -420,6 +434,11 @@ db_mtx_enter(struct db_mutex *mtx)
 	mtx->mtx_intr_state = s;
 
 #ifdef DIAGNOSTIC
+	if (__predict_true(ci->ci_mutex_level < MTX_NUM)) {
+		ci->ci_mutex_ptr[ci->ci_mutex_level] = (void *)0xdeadbeef;
+		ci->ci_mutex_retaddr[ci->ci_mutex_level] =
+		    __builtin_return_address(0);
+	}
 	ci->ci_mutex_level++;
 #endif
 }
@@ -436,6 +455,8 @@ db_mtx_leave(struct db_mutex *mtx)
 	if (__predict_false(mtx->mtx_owner != ci))
 		panic("%s: mtx %p: not owned by this CPU", __func__, mtx);
 	ci->ci_mutex_level--;
+	ci->ci_mutex_ptr[ci->ci_mutex_level] = NULL;
+	ci->ci_mutex_retaddr[ci->ci_mutex_level] = NULL;
 #endif
 
 	s = mtx->mtx_intr_state;
