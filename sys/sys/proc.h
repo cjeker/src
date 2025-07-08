@@ -376,6 +376,7 @@ struct proc {
 
 	/* scheduling */
 	unsigned int	p_cpticks; 	/* [a] Ticks of cpu time. */
+	uint64_t p_wakeid;		/* [S] */
 	const volatile void *p_wchan;	/* [z] Sleep address. */
 	struct	timeout p_sleep_to;	/* [o] timeout for tsleep() */
 	const char *p_wmesg;		/* [z] Reason for sleep. */

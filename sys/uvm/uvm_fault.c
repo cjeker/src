@@ -650,6 +650,8 @@ uvm_fault(vm_map_t orig_map, vaddr_t vaddr, vm_fault_t fault_type,
 	struct vm_page *pages[UVM_MAXRANGE];
 	int error;
 
+	LLTRACE(lltrace_event_start, LLTRACE_EVENT_CLASS_PAGEFAULT);
+
 	counters_inc(uvmexp_counters, faults);
 	TRACEPOINT(uvm, fault, vaddr, fault_type, access_type, NULL);
 
@@ -703,6 +705,8 @@ uvm_fault(vm_map_t orig_map, vaddr_t vaddr, vm_fault_t fault_type,
 			}
 		}
 	}
+
+	LLTRACE(lltrace_event_end, LLTRACE_EVENT_CLASS_PAGEFAULT);
 
 	return error;
 }

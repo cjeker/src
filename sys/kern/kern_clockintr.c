@@ -30,6 +30,7 @@
 #include <sys/stdint.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
+#include <sys/tracepoint.h>
 
 void clockintr_cancel_locked(struct clockintr *);
 void clockintr_hardclock(struct clockrequest *, void *, void *);
@@ -209,7 +210,9 @@ clockintr_dispatch(void *frame)
 		cq->cq_running = cl;
 		mtx_leave(&cq->cq_mtx);
 
+		LLTRACE_CPU(ci, lltrace_fn_enter, func);
 		func(request, frame, arg);
+		LLTRACE_CPU(ci, lltrace_fn_leave, func);
 
 		mtx_enter(&cq->cq_mtx);
 		cq->cq_running = NULL;

@@ -37,6 +37,8 @@
  *	@(#)kern_synch.c	8.6 (Berkeley) 1/21/94
  */
 
+#include "llt.h"
+
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/proc.h>
@@ -598,6 +600,7 @@ unsleep(struct proc *p)
 		p->p_wmesg = NULL;
 		TRACEPOINT(sched, unsleep, p->p_tid + THREAD_PID_OFFSET,
 		    p->p_p->ps_pid);
+		LLTRACE(lltrace_runnable, p);
 	}
 }
 
@@ -615,21 +618,21 @@ unsleep_withlock(struct proc *p)
 /*
  * Make a number of processes sleeping on the specified identifier runnable.
  */
-void
+int
 wakeup_n(const volatile void *ident, int n)
 {
-	struct slpque *qp, wakeq;
-	struct proc *p;
-	struct proc *pnext;
+	struct slpque wakeq = TAILQ_HEAD_INITIALIZER(wakeq);
+	struct slpque *qp;
+	struct proc *p, *np;
 	struct mutex *mtx;
+	int c = 0;
 
-	TAILQ_INIT(&wakeq);
+	qp = &slpque[LOOKUP(ident)];
 
 	mtx = sleep_lock_byident(ident);
 	KASSERT(mtx != NULL);
 	qp = &slpque[LOOKUP(ident)];
-	for (p = TAILQ_FIRST(qp); p != NULL && n != 0; p = pnext) {
-		pnext = TAILQ_NEXT(p, p_runq);
+	TAILQ_FOREACH_SAFE(p, qp, p_runq, np) {
 #ifdef DIAGNOSTIC
 		if (p->p_stat != SSLEEP && p->p_stat != SSTOP)
 			panic("thread %d p_stat is %d", p->p_tid, p->p_stat);
@@ -640,7 +643,9 @@ wakeup_n(const volatile void *ident, int n)
 			p->p_wchan = NULL;
 			p->p_wmesg = NULL;
 			TAILQ_INSERT_TAIL(&wakeq, p, p_runq);
-			--n;
+
+			if (++c >= n)
+				break;
 		}
 	}
 
@@ -648,19 +653,22 @@ wakeup_n(const volatile void *ident, int n)
 		TAILQ_REMOVE(&wakeq, p, p_runq);
 		TRACEPOINT(sched, unsleep, p->p_tid + THREAD_PID_OFFSET,
 		    p->p_p->ps_pid);
+		LLTRACE(lltrace_runnable, p);
 		if (p->p_stat == SSLEEP)
 			setrunnable(p);
 	}
 	sleep_lock_leave(mtx);
+
+	return (c);
 }
 
 /*
  * Make all processes sleeping on the specified identifier runnable.
  */
-void
+int
 wakeup(const volatile void *chan)
 {
-	wakeup_n(chan, -1);
+	return wakeup_n(chan, INT_MAX);
 }
 
 int

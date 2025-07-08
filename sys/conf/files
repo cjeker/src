@@ -613,6 +613,9 @@ file	dev/ksyms.c			ksyms needs-flag
 pseudo-device kstat
 file	dev/kstat.c			kstat needs-flag
 
+pseudo-device llt
+file	dev/lltrace.c			llt needs-flag
+
 pseudo-device fuse
 file	miscfs/fuse/fuse_device.c	fuse	needs-flag
 file	miscfs/fuse/fuse_file.c		fuse

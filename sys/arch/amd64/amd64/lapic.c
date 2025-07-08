@@ -37,6 +37,7 @@
 #include <sys/atomic.h>
 #include <sys/clockintr.h>
 #include <sys/device.h>
+#include <sys/tracepoint.h>
 
 #include <uvm/uvm_extern.h>
 
@@ -483,12 +484,16 @@ lapic_clockintr(void *arg, struct intrframe frame)
 	struct cpu_info *ci = curcpu();
 	int floor;
 
+	LLTRACE_CPU(ci, lltrace_intr_enter, LLTRACE_INTR_T_CLOCK, 0);
+
 	floor = ci->ci_handled_intr_level;
 	ci->ci_handled_intr_level = ci->ci_ilevel;
 	clockintr_dispatch(&frame);
 	ci->ci_handled_intr_level = floor;
 
 	evcount_inc(&clk_count);
+
+	LLTRACE_CPU(ci, lltrace_intr_leave, LLTRACE_INTR_T_CLOCK, 0);
 }
 
 void

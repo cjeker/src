@@ -103,6 +103,7 @@ struct cpustats {
 #define	MTX_NUM		8		/* track how many mtx in cpu_info */
 
 struct smr_entry;
+struct lltrace_cpu;
 
 /*
  * Per-CPU scheduler state.
@@ -112,6 +113,7 @@ struct smr_entry;
  *	S	per-cpu scheduler lock
  */
 struct schedstate_percpu {
+	struct lltrace_cpu *spc_lltrace;
 	struct proc *spc_idleproc;	/* [I] idle proc for this cpu */
 	struct mutex spc_sched_lock;	/* per-cpu scheduler lock */
 	TAILQ_HEAD(prochead, proc) spc_qs[SCHED_NQS];	/* [s] */

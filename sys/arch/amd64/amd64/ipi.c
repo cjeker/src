@@ -35,9 +35,10 @@
 #include <sys/param.h>
 #include <sys/device.h>
 #include <sys/systm.h>
+#include <sys/atomic.h>
+#include <sys/tracepoint.h>
 
 #include <machine/intr.h>
-#include <machine/atomic.h>
 #include <machine/cpuvar.h>
 #include <machine/i82489reg.h>
 #include <machine/i82489var.h>
@@ -45,6 +46,8 @@
 void
 x86_send_ipi(struct cpu_info *ci, int ipimask)
 {
+	LLTRACE(lltrace_ipi, ci->ci_cpuid);
+
 	x86_atomic_setbits_u32(&ci->ci_ipis, ipimask);
 
 	/* Don't send IPI to cpu which isn't (yet) running. */
@@ -57,6 +60,8 @@ x86_send_ipi(struct cpu_info *ci, int ipimask)
 int
 x86_fast_ipi(struct cpu_info *ci, int ipi)
 {
+	LLTRACE(lltrace_ipi, ci->ci_cpuid);
+
 	if (!(ci->ci_flags & CPUF_RUNNING))
 		return (ENOENT);
 
@@ -71,6 +76,8 @@ x86_broadcast_ipi(int ipimask)
 	struct cpu_info *ci, *self = curcpu();
 	int count = 0;
 	CPU_INFO_ITERATOR cii;
+
+	LLTRACE_CPU(self, lltrace_ipi, ~0);
 
 	CPU_INFO_FOREACH(cii, ci) {
 		if (ci == self)
@@ -95,17 +102,22 @@ x86_ipi_handler(void)
 	int bit;
 	int floor;
 
+	LLTRACE_CPU(ci, lltrace_intr_enter, LLTRACE_INTR_T_IPI, 0);
+
 	floor = ci->ci_handled_intr_level;
 	ci->ci_handled_intr_level = ci->ci_ilevel;
 
 	pending = atomic_swap_uint(&ci->ci_ipis, 0);
 	for (bit = 0; bit < X86_NIPI && pending; bit++) {
 		if (pending & (1 << bit)) {
-			pending &= ~(1 << bit);
+			LLTRACE_CPU(ci, lltrace_fn_enter, ipifunc[bit]);
 			(*ipifunc[bit])(ci);
+			LLTRACE_CPU(ci, lltrace_fn_leave, ipifunc[bit]);
 			evcount_inc(&ipi_count);
 		}
 	}
 
 	ci->ci_handled_intr_level = floor;
+
+	LLTRACE_CPU(ci, lltrace_intr_leave, LLTRACE_INTR_T_IPI, 0);
 }
