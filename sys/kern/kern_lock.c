@@ -308,6 +308,9 @@ mtx_enter(struct mutex *mtx)
 {
 	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
 	unsigned int i, ncycle = CPU_MIN_BUSY_CYCLES;
+#ifdef MP_LOCKDEBUG
+	long nticks = __mp_lock_spinout;
+#endif
 #if NLLT > 0
 	unsigned int lltev = LLTRACE_LK_I_EXCL;
 #endif
