@@ -50,7 +50,6 @@ struct cpuset sched_all_cpus;
 uint64_t sched_nmigrations;	/* Cpu migration counter */
 uint64_t sched_nomigrations;	/* Cpu no migration counter */
 uint64_t sched_noidle;		/* Times we didn't pick the idle task */
-uint64_t sched_stolen;		/* Times we stole proc from other cpus */
 uint64_t sched_choose;		/* Times we chose a cpu */
 uint64_t sched_wasidle;		/* Times we came out of idle */
 
@@ -100,6 +99,9 @@ sched_init_cpu(struct cpu_info *ci)
 
 	spc->spc_idleproc = NULL;
 
+	mtx_init_flags(&spc->spc_sched_lock, IPL_SCHED, "cpu_schedlk",
+	    MTX_DUPOK);
+
 	clockintr_bind(&spc->spc_itimer, ci, itimer_update, NULL);
 	clockintr_bind(&spc->spc_profclock, ci, profclock, NULL);
 	clockintr_bind(&spc->spc_roundrobin, ci, roundrobin, NULL);
@@ -137,14 +139,45 @@ sched_kthreads_create(void *v)
 	num++;
 }
 
+#ifdef MULTIPROCESSOR
+/* Remove all procs from the run queue and reinsert them on different CPUs. */
+static void
+sched_purge_queues(struct cpu_info *ci)
+{
+	TAILQ_HEAD(prochead, proc) pq = TAILQ_HEAD_INITIALIZER(pq);
+	struct schedstate_percpu *spc;
+	struct proc *p;
+	int queue;
+
+	spc = &ci->ci_schedstate;
+	sched_cpu_lock(ci);
+	for (queue = 0; queue < SCHED_NQS; queue++) {
+		while ((p = TAILQ_FIRST(&spc->spc_qs[queue]))) {
+			remrunqueue(p);
+			TAILQ_INSERT_TAIL(&pq, p, p_runq);
+		}
+	}
+	sched_cpu_unlock(ci);
+
+	while ((p = TAILQ_FIRST(&pq))) {
+		TAILQ_REMOVE(&pq, p, p_runq);
+
+		ci = sched_choosecpu(p);
+		sched_cpu_lock_both(ci, curcpu());
+		setrunqueue(ci, p, p->p_runpri);
+		sched_cpu_unlock_both(ci, curcpu());
+		KASSERT(p->p_cpu != curcpu() || p->p_flag & P_CPUPEG);
+	}
+}
+#endif
+
 void
 sched_idle(void *v)
 {
 	struct schedstate_percpu *spc;
-	struct proc *p = curproc;
+	struct proc *p = curproc, *next;
 	struct cpu_info *ci = v;
-
-	KERNEL_UNLOCK();
+	struct mutex *mtx;
 
 	/*
 	 * The idle thread is setup in fork1(). When the CPU hatches we
@@ -164,22 +197,30 @@ sched_idle(void *v)
 	KASSERT(curproc == spc->spc_idleproc);
 	KASSERT(p->p_cpu == ci);
 
-	SCHED_LOCK();
+	mtx = sched_cpu_lock(ci);
 	p->p_stat = SSLEEP;
-	mi_switch();
+	next = sched_chooseproc();
+	mi_switch(next, mtx);
 
 	while (1) {
 		while (spc->spc_whichqs != 0) {
 			struct proc *dead;
 
-			SCHED_LOCK();
+			mtx = sched_cpu_lock(ci);
 			p->p_stat = SSLEEP;
-			mi_switch();
+			next = sched_chooseproc();
+			mi_switch(next, mtx);
 
 			while ((dead = TAILQ_FIRST(&spc->spc_deadproc))) {
 				TAILQ_REMOVE(&spc->spc_deadproc, dead, p_runq);
 				exit2(dead);
 			}
+
+#ifdef MULTIPROCESSOR
+			if (__predict_false(spc->spc_schedflags &
+			    SPCF_SHOULDHALT))
+				sched_purge_queues(ci);
+#endif
 		}
 
 		splassert(IPL_NONE);
@@ -193,10 +234,10 @@ sched_idle(void *v)
 			if (spc->spc_schedflags & SPCF_SHOULDHALT &&
 			    (spc->spc_schedflags & SPCF_HALTED) == 0) {
 				cpuset_del(&sched_idle_cpus, ci);
-				SCHED_LOCK();
+				sched_cpu_lock(ci);
 				atomic_setbits_int(&spc->spc_schedflags,
 				    spc->spc_whichqs ? 0 : SPCF_HALTED);
-				SCHED_UNLOCK();
+				sched_cpu_unlock(ci);
 				wakeup(spc);
 			}
 #endif
@@ -252,7 +293,8 @@ sched_toidle(void)
 
 	atomic_clearbits_int(&spc->spc_schedflags, SPCF_SWITCHCLEAR);
 
-	SCHED_LOCK();
+	spc->spc_mtx = sched_cpu_lock(curcpu());
+
 	idle = spc->spc_idleproc;
 	idle->p_stat = SRUN;
 
@@ -260,6 +302,8 @@ sched_toidle(void)
 	if (curproc != NULL)
 		TRACEPOINT(sched, off__cpu, idle->p_tid + THREAD_PID_OFFSET,
 		    idle->p_p->ps_pid);
+	KASSERT(idle->p_stat == SRUN);
+	spc->spc_prevproc = NULL;
 	cpu_switchto(NULL, idle);
 	panic("cpu_switchto returned");
 }
@@ -270,13 +314,12 @@ setrunqueue(struct cpu_info *ci, struct proc *p, uint8_t prio)
 	struct schedstate_percpu *spc;
 	int queue = prio >> 2;
 
-	if (ci == NULL)
-		ci = sched_choosecpu(p);
-
 	KASSERT(ci != NULL);
-	SCHED_ASSERT_LOCKED();
+	SCHED_CPU_ASSERT_LOCKED(ci);
 	KASSERT(p->p_wchan == NULL);
 	KASSERT(!ISSET(p->p_flag, P_INSCHED));
+	if (p->p_stat == SONPROC)
+		SCHED_CPU_ASSERT_LOCKED(p->p_cpu);
 
 	p->p_cpu = ci;
 	p->p_stat = SRUN;
@@ -303,7 +346,8 @@ remrunqueue(struct proc *p)
 	struct schedstate_percpu *spc;
 	int queue = p->p_runpri >> 2;
 
-	SCHED_ASSERT_LOCKED();
+	SCHED_CPU_ASSERT_LOCKED(p->p_cpu);
+	KASSERT(p->p_stat == SRUN);
 	spc = &p->p_cpu->ci_schedstate;
 	spc->spc_nrun--;
 	TRACEPOINT(sched, dequeue, p->p_tid + THREAD_PID_OFFSET,
@@ -321,35 +365,10 @@ struct proc *
 sched_chooseproc(void)
 {
 	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
-	struct proc *p;
+	struct proc *p = NULL;
 	int queue;
 
-	SCHED_ASSERT_LOCKED();
-
-#ifdef MULTIPROCESSOR
-	if (spc->spc_schedflags & SPCF_SHOULDHALT) {
-		if (spc->spc_whichqs) {
-			for (queue = 0; queue < SCHED_NQS; queue++) {
-				while ((p = TAILQ_FIRST(&spc->spc_qs[queue]))) {
-					remrunqueue(p);
-					setrunqueue(NULL, p, p->p_runpri);
-					if (p->p_cpu == curcpu()) {
-						KASSERT(p->p_flag & P_CPUPEG);
-						goto again;
-					}
-				}
-			}
-		}
-		p = spc->spc_idleproc;
-		if (p == NULL)
-			panic("no idleproc set on CPU%d",
-			    CPU_INFO_UNIT(curcpu()));
-		p->p_stat = SRUN;
-		KASSERT(p->p_wchan == NULL);
-		return (p);
-	}
-again:
-#endif
+	SCHED_CPU_ASSERT_LOCKED(curcpu());
 
 	if (spc->spc_whichqs) {
 		queue = ffs(spc->spc_whichqs) - 1;
@@ -358,14 +377,22 @@ again:
 		sched_noidle++;
 		if (p->p_stat != SRUN)
 			panic("thread %d not in SRUN: %d", p->p_tid, p->p_stat);
-	} else if ((p = sched_steal_proc(curcpu())) == NULL) {
+	}
+
+#ifdef MULTIPROCESSOR
+	if (__predict_false(spc->spc_schedflags & SPCF_SHOULDHALT)) {
+		if (p != NULL && (p->p_flag & P_CPUPEG) == 0)
+			p = NULL;
+	}
+#endif
+
+	if (p == NULL) {
 		p = spc->spc_idleproc;
 		if (p == NULL)
 			panic("no idleproc set on CPU%d",
 			    CPU_INFO_UNIT(curcpu()));
 		p->p_stat = SRUN;
 	} 
-
 	KASSERT(p->p_wchan == NULL);
 	KASSERT(!ISSET(p->p_flag, P_INSCHED));
 	return (p);
@@ -487,63 +514,6 @@ sched_choosecpu(struct proc *p)
 	return (curcpu());
 }
 
-/*
- * Attempt to steal a proc from some cpu.
- */
-struct proc *
-sched_steal_proc(struct cpu_info *self)
-{
-	struct proc *best = NULL;
-#ifdef MULTIPROCESSOR
-	struct schedstate_percpu *spc;
-	int bestcost = INT_MAX;
-	struct cpu_info *ci;
-	struct cpuset set;
-
-	KASSERT((self->ci_schedstate.spc_schedflags & SPCF_SHOULDHALT) == 0);
-
-	/* Don't steal if we don't want to schedule processes in this CPU. */
-	if (!cpuset_isset(&sched_all_cpus, self))
-		return (NULL);
-
-	cpuset_copy(&set, &sched_queued_cpus);
-
-	while ((ci = cpuset_first(&set)) != NULL) {
-		struct proc *p;
-		int queue;
-		int cost;
-
-		cpuset_del(&set, ci);
-
-		spc = &ci->ci_schedstate;
-
-		queue = ffs(spc->spc_whichqs) - 1;
-		TAILQ_FOREACH(p, &spc->spc_qs[queue], p_runq) {
-			if (p->p_flag & P_CPUPEG)
-				continue;
-
-			cost = sched_proc_to_cpu_cost(self, p);
-
-			if (best == NULL || cost < bestcost) {
-				best = p;
-				bestcost = cost;
-			}
-		}
-	}
-	if (best == NULL)
-		return (NULL);
-
-	TRACEPOINT(sched, steal, best->p_tid + THREAD_PID_OFFSET,
-	    best->p_p->ps_pid, CPU_INFO_UNIT(self));
-
-	remrunqueue(best);
-	best->p_cpu = self;
-
-	sched_stolen++;
-#endif
-	return (best);
-}
-
 #ifdef MULTIPROCESSOR
 /*
  * Base 2 logarithm of an int. returns 0 for 0 (yeye, I know).
@@ -611,7 +581,7 @@ sched_proc_to_cpu_cost(struct cpu_info *ci, struct proc *p)
 	 * If the proc is on this cpu already, lower the cost by how much
 	 * it has been running and an estimate of its footprint.
 	 */
-	if (p->p_cpu == ci && p->p_slptime == 0) {
+	if (p->p_cpu == ci) {
 		l2resident =
 		    log2(pmap_resident_count(p->p_vmspace->vm_map.pmap));
 		cost -= l2resident * sched_cost_resident;
@@ -621,18 +591,78 @@ sched_proc_to_cpu_cost(struct cpu_info *ci, struct proc *p)
 }
 
 /*
+ * Lock functions for multiple cpus. Use the CPU_INFO_UNIT to enforce
+ * constant lock order.
+ */
+void
+sched_cpu_lock_both(struct cpu_info *outer, struct cpu_info *inner)
+{
+	if (outer == inner) {
+		sched_cpu_lock(outer);
+	} else if (CPU_INFO_UNIT(outer) > CPU_INFO_UNIT(inner)) {
+		sched_cpu_lock(inner);
+		sched_cpu_lock(outer);
+	} else {
+		sched_cpu_lock(outer);
+		sched_cpu_lock(inner);
+	}
+}
+
+/* Unlock both cpus in the reverse order from sched_cpu_lock_both.  */
+void
+sched_cpu_unlock_both(struct cpu_info *outer, struct cpu_info *inner)
+{
+	if (outer == inner) {
+		sched_cpu_unlock(outer);
+	} else if (CPU_INFO_UNIT(outer) > CPU_INFO_UNIT(inner)) {
+		sched_cpu_unlock(outer);
+		sched_cpu_unlock(inner);
+	} else {
+		sched_cpu_unlock(inner);
+		sched_cpu_unlock(outer);
+	}
+}
+
+/* If outer and inner are different unlock. */
+void
+sched_cpu_unlock_inner(struct cpu_info *outer, struct cpu_info *inner)
+{
+	if (outer != inner)
+		sched_cpu_unlock(inner);
+}
+
+/* Enforce lock release order to first inner then outer. */
+void
+sched_cpu_lock_order(struct cpu_info *outer, struct cpu_info *inner)
+{
+	int ipl;
+	if (CPU_INFO_UNIT(outer) > CPU_INFO_UNIT(inner)) {
+		/* swap IPL since the locks are released in reverse order */
+		ipl = MUTEX_OLDIPL(sched_cpu_mtx(inner));
+		MUTEX_OLDIPL(sched_cpu_mtx(inner)) =
+		    MUTEX_OLDIPL(sched_cpu_mtx(outer));
+		MUTEX_OLDIPL(sched_cpu_mtx(outer)) = ipl;
+	}
+}
+
+/*
  * Peg a proc to a cpu.
  */
 void
 sched_peg_curproc(struct cpu_info *ci)
 {
-	struct proc *p = curproc;
+	struct proc *p = curproc, *next;
 
-	SCHED_LOCK();
+	sched_cpu_lock_both(ci, curcpu());
+	sched_cpu_lock_order(ci, curcpu());
+
 	atomic_setbits_int(&p->p_flag, P_CPUPEG);
 	setrunqueue(ci, p, p->p_usrpri);
+
 	p->p_ru.ru_nvcsw++;
-	mi_switch();
+	next = sched_chooseproc();
+	sched_cpu_unlock_inner(ci, curcpu());
+	mi_switch(next, sched_cpu_mtx(ci));
 }
 
 void

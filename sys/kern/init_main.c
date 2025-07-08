@@ -195,7 +195,6 @@ main(void *framep)
 	WITNESS_INITIALIZE();
 
 	KERNEL_LOCK_INIT();
-	SCHED_LOCK_INIT();
 
 	rw_obj_init();
 	uvm_init();
@@ -602,6 +601,8 @@ start_init(void *arg)
 	/*
 	 * Now in process 1.
 	 */
+
+	KERNEL_LOCK();
 
 	/*
 	 * Wait for main() to tell us that it's safe to exec.

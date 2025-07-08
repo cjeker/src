@@ -2705,6 +2705,8 @@ acpi_thread(void *arg)
 	extern int aml_busy;
 	int s;
 
+	KERNEL_LOCK();
+
 	/* AML/SMI cannot be trusted -- only run on the BSP */
 	sched_peg_curproc(&cpu_info_primary);
 

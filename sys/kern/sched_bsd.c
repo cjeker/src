@@ -57,8 +57,6 @@
 uint64_t roundrobin_period;	/* [I] roundrobin period (ns) */
 int	lbolt;			/* once a second sleep address */
 
-struct mutex sched_lock;
-
 void			update_loadavg(void *);
 void			schedcpu(void *);
 uint32_t		decay_aftersleep(uint32_t, uint32_t);
@@ -204,7 +202,12 @@ update_loadavg(void *unused)
 
 /* calculations for digital decay to forget 90% of usage in 5*loadav sec */
 #define	loadfactor(loadav)	(2 * (loadav))
-#define	decay_cpu(loadfac, cpu)	(((loadfac) * (cpu)) / ((loadfac) + FSCALE))
+
+static inline uint32_t
+decay_cpu(fixpt_t loadfac, uint32_t estcpu)
+{
+	return (loadfac * estcpu) / (loadfac + FSCALE);
+}
 
 /* decay 95% of `p_pctcpu' in 60 seconds; see CCPU_SHIFT before changing */
 fixpt_t	ccpu = 0.95122942450071400909 * FSCALE;		/* exp(-1/20) */
@@ -231,8 +234,11 @@ schedcpu(void *unused)
 {
 	static struct timeout to = TIMEOUT_INITIALIZER(schedcpu, NULL);
 	fixpt_t loadfac = loadfactor(averunnable.ldavg[0]), pctcpu;
-	struct proc *p;
-	unsigned int newcpu;
+	CPU_INFO_ITERATOR cii;
+	struct cpu_info *ci;
+	struct proc *p, *np;
+	uint32_t newcpu, cpticks;
+	int queue;
 
 	LIST_FOREACH(p, &allproc, p_list) {
 		/*
@@ -242,44 +248,55 @@ schedcpu(void *unused)
 		if (p->p_cpu != NULL &&
 		    p->p_cpu->ci_schedstate.spc_idleproc == p)
 			continue;
-		/*
-		 * Increment sleep time (if sleeping). We ignore overflow.
-		 */
-		if (p->p_stat == SSLEEP || p->p_stat == SSTOP)
-			p->p_slptime++;
+
 		pctcpu = (p->p_pctcpu * ccpu) >> FSHIFT;
-		/*
-		 * If the process has slept the entire second,
-		 * stop recalculating its priority until it wakes up.
-		 */
-		if (p->p_slptime > 1) {
+
+		if (p->p_stat == SSLEEP || p->p_stat == SSTOP) {
 			p->p_pctcpu = pctcpu;
 			continue;
 		}
-		SCHED_LOCK();
+
 		/*
 		 * p_pctcpu is only for diagnostic tools such as ps.
 		 */
+		cpticks = atomic_load_int(&p->p_cpticks);
 #if	(FSHIFT >= CCPU_SHIFT)
-		pctcpu += (stathz == 100)?
-			((fixpt_t) p->p_cpticks) << (FSHIFT - CCPU_SHIFT):
-                	100 * (((fixpt_t) p->p_cpticks)
-				<< (FSHIFT - CCPU_SHIFT)) / stathz;
+		pctcpu += (stathz == 100) ?
+		    ((fixpt_t)cpticks) << (FSHIFT - CCPU_SHIFT) :
+		    100 * (((fixpt_t)cpticks) << (FSHIFT - CCPU_SHIFT)) /
+		    stathz;
 #else
 		pctcpu += ((FSCALE - ccpu) *
-			(p->p_cpticks * FSCALE / stathz)) >> FSHIFT;
+		    (cpticks * FSCALE / stathz)) >> FSHIFT;
 #endif
 		p->p_pctcpu = pctcpu;
-		p->p_cpticks = 0;
-		newcpu = (u_int) decay_cpu(loadfac, p->p_estcpu);
-		setpriority(p, newcpu, p->p_p->ps_nice);
+		atomic_store_int(&p->p_cpticks, 0);
 
-		if (p->p_stat == SRUN &&
-		    (p->p_runpri / SCHED_PPQ) != (p->p_usrpri / SCHED_PPQ)) {
-			remrunqueue(p);
-			setrunqueue(p->p_cpu, p, p->p_usrpri);
+		newcpu = decay_cpu(loadfac, p->p_estcpu);
+		setpriority(p, newcpu, p->p_p->ps_nice);
+	}
+
+	CPU_INFO_FOREACH(cii, ci) {
+		struct schedstate_percpu *spc = &ci->ci_schedstate;
+
+		sched_cpu_lock(ci);
+		for (queue = 0; queue < SCHED_NQS; queue++) {
+#if 0
+			TAILQ_FOREACH_SAFE(p, &spc->spc_qs[queue], p_runq, np) {
+				if ((p->p_runpri / SCHED_PPQ) !=
+				    (p->p_usrpri / SCHED_PPQ)) {
+#else
+			/* XXX for testing */
+			TAILQ_FOREACH_REVERSE_SAFE(p, &spc->spc_qs[queue],
+			    prochead, p_runq, np) {
+				if (1) {
+#endif
+					remrunqueue(p);
+					setrunqueue(p->p_cpu, p, p->p_usrpri);
+				}
+			}
 		}
-		SCHED_UNLOCK();
+		sched_cpu_unlock(ci);
 	}
 	wakeup(&lbolt);
 	timeout_add_sec(&to, 1);
@@ -299,11 +316,8 @@ decay_aftersleep(uint32_t estcpu, uint32_t slptime)
 	if (slptime > 5 * loadfac)
 		newcpu = 0;
 	else {
-		newcpu = estcpu;
-		slptime--;	/* the first time was done in schedcpu */
-		while (newcpu && --slptime)
+		for (newcpu = estcpu; newcpu && slptime; slptime--)
 			newcpu = decay_cpu(loadfac, newcpu);
-
 	}
 
 	return (newcpu);
@@ -316,12 +330,14 @@ decay_aftersleep(uint32_t estcpu, uint32_t slptime)
 void
 yield(void)
 {
-	struct proc *p = curproc;
+	struct proc *p = curproc, *next;
+	struct mutex *mtx;
 
-	SCHED_LOCK();
+	mtx = sched_cpu_lock(curcpu());
 	setrunqueue(p->p_cpu, p, p->p_usrpri);
 	p->p_ru.ru_nvcsw++;
-	mi_switch();
+	next = sched_chooseproc();
+	mi_switch(next, mtx);
 }
 
 /*
@@ -333,20 +349,21 @@ yield(void)
 void
 preempt(void)
 {
-	struct proc *p = curproc;
+	struct proc *p = curproc, *next;
+	struct mutex *mtx;
 
-	SCHED_LOCK();
+	mtx = sched_cpu_lock(curcpu());
 	setrunqueue(p->p_cpu, p, p->p_usrpri);
 	p->p_ru.ru_nivcsw++;
-	mi_switch();
+	next = sched_chooseproc();
+	mi_switch(next, mtx);
 }
 
 void
-mi_switch(void)
+mi_switch(struct proc *nextproc, struct mutex *mtx)
 {
 	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
 	struct proc *p = curproc;
-	struct proc *nextproc;
 	int oldipl;
 #ifdef MULTIPROCESSOR
 	int hold_count;
@@ -354,7 +371,8 @@ mi_switch(void)
 
 	KASSERT(p->p_stat != SONPROC);
 
-	SCHED_ASSERT_LOCKED();
+	MUTEX_ASSERT_LOCKED(mtx);
+	spc->spc_mtx = mtx;
 
 #ifdef MULTIPROCESSOR
 	/*
@@ -385,15 +403,15 @@ mi_switch(void)
 	 */
 	atomic_clearbits_int(&spc->spc_schedflags, SPCF_SWITCHCLEAR);
 
-	nextproc = sched_chooseproc();
-
 	/* preserve old IPL level so we can switch back to that */
-	oldipl = MUTEX_OLDIPL(&sched_lock);
+	oldipl = MUTEX_OLDIPL(spc->spc_mtx);
 
+	spc->spc_prevproc = p;
 	if (p != nextproc) {
 		uvmexp.swtch++;
 		TRACEPOINT(sched, off__cpu, nextproc->p_tid + THREAD_PID_OFFSET,
 		    nextproc->p_p->ps_pid);
+		KASSERT(nextproc->p_stat == SRUN);
 		cpu_switchto(p, nextproc);
 		TRACEPOINT(sched, on__cpu, NULL);
 	} else {
@@ -403,16 +421,6 @@ mi_switch(void)
 
 	clear_resched(curcpu());
 
-	SCHED_ASSERT_LOCKED();
-
-	/* Restore proc's IPL. */
-	MUTEX_OLDIPL(&sched_lock) = oldipl;
-	SCHED_UNLOCK();
-
-	SCHED_ASSERT_UNLOCKED();
-
-	assertwaitok();
-	smr_idle();
 
 	/*
 	 * We're running again; record our new start time.  We might
@@ -421,6 +429,14 @@ mi_switch(void)
 	 */
 	KASSERT(p->p_cpu == curcpu());
 	spc = &p->p_cpu->ci_schedstate;
+
+	/* Restore proc's IPL. */
+	MUTEX_OLDIPL(spc->spc_mtx) = oldipl;
+	mtx_leave(spc->spc_mtx);
+	spc->spc_mtx = NULL;
+
+	assertwaitok();
+	smr_idle();
 
 	/* Start any optional clock interrupts needed by the thread. */
 	if (ISSET(p->p_p->ps_flags, PS_ITIMER)) {
@@ -453,9 +469,11 @@ void
 setrunnable(struct proc *p)
 {
 	struct process *pr = p->p_p;
+	struct cpu_info *ci, *pci;
+	struct mutex *mtx;
 	u_char prio;
-
-	SCHED_ASSERT_LOCKED();
+	uint64_t slptime;
+	uint32_t newcpu;
 
 	switch (p->p_stat) {
 	case 0:
@@ -466,38 +484,42 @@ setrunnable(struct proc *p)
 	default:
 		panic("setrunnable");
 	case SSTOP:
-		prio = p->p_usrpri;
+		MUTEX_ASSERT_LOCKED(&pr->ps_mtx);
+
 		TRACEPOINT(sched, unstop, p->p_tid + THREAD_PID_OFFSET,
 		    p->p_p->ps_pid, CPU_INFO_UNIT(p->p_cpu));
 
 		/* If not yet stopped or asleep, unstop but don't add to runq */
 		if (ISSET(p->p_flag, P_INSCHED)) {
-			if (p->p_wchan != NULL)
-				p->p_stat = SSLEEP;
-			else
+			if ((mtx = sleep_lock_enter(p)) == NULL)
 				p->p_stat = SONPROC;
+			else
+				p->p_stat = SSLEEP;
+			sleep_lock_leave(mtx);
 			return;
 		}
-		setrunqueue(NULL, p, prio);
 		break;
 	case SSLEEP:
 		prio = p->p_slppri;
-
 		TRACEPOINT(sched, wakeup, p->p_tid + THREAD_PID_OFFSET,
 		    p->p_p->ps_pid, CPU_INFO_UNIT(p->p_cpu));
 		/* if not yet asleep, don't add to runqueue */
 		if (ISSET(p->p_flag, P_INSCHED))
 			return;
-		setrunqueue(NULL, p, prio);
 		break;
 	}
-	if (p->p_slptime > 1) {
-		uint32_t newcpu;
 
-		newcpu = decay_aftersleep(p->p_estcpu, p->p_slptime);
-		setpriority(p, newcpu, pr->ps_nice);
-	}
-	p->p_slptime = 0;
+	slptime = (nsecuptime() - p->p_lastsw) / 1000000000ULL;
+	newcpu = decay_aftersleep(p->p_estcpu, slptime);
+	setpriority(p, newcpu, pr->ps_nice);
+	if (p->p_stat == SSTOP)
+		prio = p->p_usrpri;
+
+	ci = sched_choosecpu(p);
+	pci = p->p_cpu;
+	sched_cpu_lock_both(ci, pci);
+	setrunqueue(ci, p, prio);
+	sched_cpu_unlock_both(ci, pci);
 }
 
 /*
@@ -510,7 +532,6 @@ setpriority(struct proc *p, uint32_t newcpu, uint8_t nice)
 
 	newprio = min((PUSER + newcpu + NICE_WEIGHT * (nice - NZERO)), MAXPRI);
 
-	SCHED_ASSERT_LOCKED();
 	p->p_estcpu = newcpu;
 	p->p_usrpri = newprio;
 }
@@ -539,10 +560,9 @@ schedclock(struct proc *p)
 	if (p == spc->spc_idleproc || spc->spc_spinning)
 		return;
 
-	SCHED_LOCK();
-	newcpu = ESTCPULIM(p->p_estcpu + 1);
+	newcpu = p->p_estcpu;
+	newcpu = ESTCPULIM(newcpu + 1);
 	setpriority(p, newcpu, p->p_p->ps_nice);
-	SCHED_UNLOCK();
 }
 
 void (*cpu_setperf)(int);

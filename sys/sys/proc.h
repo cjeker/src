@@ -147,7 +147,6 @@ struct pinsyscall {
  *	p	this process' `ps_lock'
  *	Q	kqueue_ps_list_lock
  *	R	rlimit_lock
- *	S	scheduler lock
  *	T	itimer_mtx
  */
 struct process {
@@ -343,14 +342,15 @@ struct p_inentry {
 /*
  *  Locks used to protect struct members in this file:
  *	I	immutable after creation
- *	S	scheduler lock
  *	U	uidinfolk
  *	l	read only reference, see lim_read_enter()
  *	o	owned (modified only) by this thread
  *	m	this proc's' `p->p_p->ps_mtx'
+ *	s	per-cpu scheduler lock
+ *	z	a sleep queue lock
  */
 struct proc {
-	TAILQ_ENTRY(proc) p_runq;	/* [S] current run/sleep queue */
+	TAILQ_ENTRY(proc) p_runq;	/* [sz] current run/sleep queue */
 	LIST_ENTRY(proc) p_list;	/* List of all threads. */
 
 	struct	process *p_p;		/* [I] The process of this thread. */
@@ -363,8 +363,8 @@ struct proc {
 
 	int	p_flag;			/* P_* flags. */
 	u_char	p_spare;		/* unused */
-	char	p_stat;			/* [S] S* process status. */
-	u_char	p_runpri;		/* [S] Runqueue priority */
+	volatile char	p_stat;		/* [msz] S* process status. */
+	u_char	p_runpri;		/* [s] Runqueue priority */
 	u_char	p_descfd;		/* if not 255, fdesc permits this fd */
 
 	pid_t	p_tid;			/* Thread identifier. */
@@ -375,16 +375,17 @@ struct proc {
 	int	p_dupfd;	 /* Sideways return value from filedescopen. XXX */
 
 	/* scheduling */
-	int	p_cpticks;	 /* Ticks of cpu time. */
-	const volatile void *p_wchan;	/* [S] Sleep address. */
-	struct	timeout p_sleep_to;/* timeout for tsleep() */
-	const char *p_wmesg;		/* [S] Reason for sleep. */
+	unsigned int	p_cpticks; 	/* [a] Ticks of cpu time. */
+	const volatile void *p_wchan;	/* [z] Sleep address. */
+	struct	timeout p_sleep_to;	/* [o] timeout for tsleep() */
+	const char *p_wmesg;		/* [z] Reason for sleep. */
+	const char *p_last_wmesg;	/* [z] Reason for last sleep. */
 	volatile fixpt_t p_pctcpu;	/* [a] %cpu for this thread */
-	u_int	p_slptime;		/* [S] Time since last blocked. */
-	struct	cpu_info * volatile p_cpu; /* [S] CPU we're running on. */
+	struct	cpu_info * volatile p_cpu; /* [s] CPU we're running on. */
 
 	struct	rusage p_ru;		/* Statistics */
 	struct	tusage p_tu;		/* [o] accumulated times. */
+	uint64_t p_lastsw;		/* [o] Time of last mi_switch. */
 
 	struct	plimit	*p_limit;	/* [l] read ref. of p_p->ps_limit */
 	struct	kcov_dev *p_kd;		/* kcov device handle */
@@ -402,9 +403,9 @@ struct proc {
 	sigset_t p_sigmask;		/* [o] Current signal mask */
 
 	char	p_name[_MAXCOMLEN];	/* thread name, incl NUL */
-	u_char	p_slppri;		/* [S] Sleeping priority */
-	u_char	p_usrpri;	/* [S] Priority based on p_estcpu & ps_nice */
-	u_int	p_estcpu;		/* [S] Time averaged val of p_cpticks */
+	u_char	p_slppri;		/* [z] Sleeping priority */
+	u_char	p_usrpri;		/* [a] Priority of p_estcpu & ps_nice */
+	volatile uint32_t p_estcpu;	/* [a] Time averaged val of p_cpticks */
 	int	p_pledge_syscall;	/* Cache of current syscall */
 	uint64_t p_pledge;		/* [o] copy of p_p->ps_pledge */
 
@@ -427,13 +428,13 @@ struct proc {
 };
 
 /* Status values. */
-#define	SIDL	1		/* Thread being created by fork. */
-#define	SRUN	2		/* Currently runnable. */
-#define	SSLEEP	3		/* Sleeping on an address. */
-#define	SSTOP	4		/* Debugging or suspension. */
+#define	SIDL	1		/* [s] Thread being created by fork. */
+#define	SRUN	2		/* [s] Currently runnable. */
+#define	SSLEEP	3		/* [z] Sleeping on an address. */
+#define	SSTOP	4		/* [m] Debugging or suspension. */
 #define	SZOMB	5		/* unused */
-#define	SDEAD	6		/* Thread is almost gone */
-#define	SONPROC	7		/* Thread is currently on a CPU. */
+#define	SDEAD	6		/* [s] Thread is almost gone */
+#define	SONPROC	7		/* [s] Thread is currently on a CPU. */
 
 #define	P_HASSIBLING(p)	((p)->p_p->ps_threadcnt > 1)
 
@@ -578,6 +579,7 @@ void	setrunnable(struct proc *);
 void	endtsleep(void *);
 int	wakeup_proc(struct proc *);
 void	unsleep(struct proc *);
+void	unsleep_withlock(struct proc *);
 void	reaper(void *);
 __dead void exit1(struct proc *, int, int, int);
 void	exit2(struct proc *);
@@ -592,6 +594,15 @@ int	thread_fork(struct proc *_curp, void *_stack, void *_tcb,
 int	groupmember(gid_t, struct ucred *);
 void	dorefreshcreds(struct process *, struct proc *);
 void	dosigsuspend(struct proc *, sigset_t);
+
+struct mutex	*sleep_lock_enter(struct proc *);
+
+static inline void
+sleep_lock_leave(struct mutex *mtx)
+{
+	if (mtx != NULL)
+		mtx_leave(mtx);
+}
 
 static inline void
 refreshcreds(struct proc *p)
@@ -662,6 +673,43 @@ static inline void
 tu_leave(struct tusage *tu, unsigned int gen)
 {
 	pc_sprod_leave(&tu->tu_pcl, gen);
+}
+
+/* can't be in sched.h because cpu_info depends on sched.h */
+static inline struct mutex *
+sched_cpu_mtx(struct cpu_info *ci)
+{
+	return &ci->ci_schedstate.spc_sched_lock;
+}
+
+static inline struct mutex *
+sched_cpu_lock(struct cpu_info *ci)
+{
+	struct mutex *mtx = sched_cpu_mtx(ci);
+	mtx_enter(mtx);
+	return mtx;
+}
+
+static inline void
+sched_cpu_unlock(struct cpu_info *ci)
+{
+	mtx_leave(sched_cpu_mtx(ci));
+}
+
+static inline struct mutex *
+sched_proc_cpu_lock(struct proc *p)
+{
+	struct cpu_info *ci;
+	struct mutex *mtx;
+
+	while (1) {
+		ci = p->p_cpu;
+		mtx = sched_cpu_lock(ci);
+		if (p->p_cpu == ci)
+			break;
+		sched_cpu_unlock(ci);
+	}
+	return mtx;
 }
 
 #endif	/* _KERNEL */

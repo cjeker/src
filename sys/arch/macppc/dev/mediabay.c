@@ -223,6 +223,8 @@ mediabay_kthread(void *v)
 	struct mediabay_softc *sc = v;
 	u_int x, fcr;
 
+	KERNEL_LOCK();
+
 sleep:
 	tsleep_nsec(&sc->sc_kthread, PRIBIO, "mbayev", INFSLP);
 

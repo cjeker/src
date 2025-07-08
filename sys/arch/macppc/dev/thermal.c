@@ -89,6 +89,8 @@ thermal_thread_create(void *arg)
 void
 thermal_thread_loop(void *arg)
 {
+	KERNEL_LOCK();
+
 	while (thermal_enable) {
 		thermal_manage_fans();
 		tsleep_nsec(&thermal_enable, 0, "thermal", SEC_TO_NSEC(1));

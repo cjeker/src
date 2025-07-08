@@ -3,8 +3,10 @@
 include "arch/sparc64/conf/GENERIC"
 
 option	MULTIPROCESSOR
-#option	MP_LOCKDEBUG
-#option	WITNESS
+option	MP_LOCKDEBUG
+option	WITNESS
+option	DDB_SAFE_CONSOLE
+option	SPLASSERT_WATCH
 
 cpu*	at mainbus?
 cpu*	at ssm?

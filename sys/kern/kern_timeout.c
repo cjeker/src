@@ -836,7 +836,7 @@ softclock_thread_run(struct timeout_ctx *tctx)
 
 	for (;;) {
 		/*
-		 * Avoid holding both timeout_mutex and SCHED_LOCK
+		 * Avoid holding both timeout_mutex and any scheduler lock
 		 * at the same time.
 		 */
 		sleep_setup(todo, PSWP, "tmoslp");
@@ -861,7 +861,7 @@ softclock_thread(void *arg)
 	struct cpu_info *ci;
 	int s;
 
-	KERNEL_ASSERT_LOCKED();
+	KERNEL_LOCK();
 
 	/* Be conservative for the moment */
 	CPU_INFO_FOREACH(cii, ci) {
@@ -880,9 +880,6 @@ softclock_thread(void *arg)
 void
 softclock_thread_mp(void *arg)
 {
-	KERNEL_ASSERT_LOCKED();
-	KERNEL_UNLOCK();
-
 	softclock_thread_run(&timeout_ctx_proc_mp);
 }
 #endif /* MULTIPROCESSOR */

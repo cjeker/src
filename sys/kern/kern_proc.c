@@ -497,10 +497,11 @@ proc_printit(struct proc *p, const char *modif,
 	    p->p_tid, p->p_p->ps_pid, p->p_p->ps_threadcnt, pst);
 	(*pr)("    flags process=%b proc=%b\n",
 	    p->p_p->ps_flags, PS_BITS, p->p_flag, P_BITS);
-	(*pr)("    runpri=%u, usrpri=%u, slppri=%u, nice=%d\n",
-	    p->p_runpri, p->p_usrpri, p->p_slppri, p->p_p->ps_nice);
-	(*pr)("    wchan=%p, wmesg=%s, ps_single=%p scnt=%d ecnt=%d\n",
+	(*pr)("    runpri=%u, usrpri=%u, slppri=%u, nice=%d cpu=%p\n",
+	    p->p_runpri, p->p_usrpri, p->p_slppri, p->p_p->ps_nice, p->p_cpu);
+	(*pr)("    wchan=%p, wmesg=%s, last wmesg=%s, ps_single=%p scnt=%d ecnt=%d\n",
 	    p->p_wchan, (p->p_wchan && p->p_wmesg) ?  p->p_wmesg : "",
+	    p->p_last_wmesg ?  p->p_last_wmesg : "",
 	    p->p_p->ps_single, p->p_p->ps_suspendcnt, p->p_p->ps_exitcnt);
 	(*pr)("    forw=%p, list=%p,%p\n",
 	    TAILQ_NEXT(p, p_runq), p->p_list.le_next, p->p_list.le_prev);

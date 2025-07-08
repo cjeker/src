@@ -1178,6 +1178,8 @@ buf_daemon(void *arg)
 	struct buf *bp = NULL;
 	int s, pushed = 0;
 
+	KERNEL_LOCK();
+
 	s = splbio();
 	for (;;) {
 		if (bp == NULL || (pushed >= 16 &&

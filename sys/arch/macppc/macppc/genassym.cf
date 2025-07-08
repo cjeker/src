@@ -92,6 +92,3 @@ member	ci_intstk
 member	ci_tempsave
 member	ci_ddbsave
 member	ci_disisave
-ifdef DIAGNOSTIC
-member	ci_mutex_level
-endif

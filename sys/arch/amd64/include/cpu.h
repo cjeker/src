@@ -157,6 +157,8 @@ struct cpu_info {
 	u_int64_t	ci_iunmask[NIPL];
 #ifdef DIAGNOSTIC
 	int		ci_mutex_level;
+	struct mutex	*ci_mutex_ptr[MTX_NUM];
+	void		*ci_mutex_retaddr[MTX_NUM];
 #endif
 
 	volatile u_int	ci_flags;	/* [a] */

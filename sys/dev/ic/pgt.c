@@ -1122,6 +1122,8 @@ pgt_per_device_kthread(void *argp)
 	struct mbuf *m;
 	int s;
 
+	KERNEL_LOCK();
+
 	sc = argp;
 	sck = &sc->sc_kthread;
 	while (!sck->sck_exit) {

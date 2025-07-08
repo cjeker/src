@@ -77,7 +77,5 @@ child_return(void *arg)
 	frame->fixreg[3] = 0;
 	frame->cr &= ~0x10000000;
 
-	KERNEL_UNLOCK();
-
 	mi_child_return(p);
 }

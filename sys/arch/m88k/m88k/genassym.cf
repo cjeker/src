@@ -71,9 +71,6 @@ member	ci_pfsr_d0
 member	ci_pfsr_d1
 member	ci_want_resched
 member	ci_softipi_cb
-ifdef DIAGNOSTIC
-member	ci_mutex_level
-endif
 
 # pcb fields
 struct	pcb

@@ -121,13 +121,18 @@ void
 __set_current_state(int state)
 {
 	struct proc *p = curproc;
+	struct mutex *mtx;
 
 	KASSERT(state == TASK_RUNNING);
-	SCHED_LOCK();
-	unsleep(p);
+
+	/* short version of sleep_finish(INFSLP, 0); */
+	if ((mtx = sleep_lock_enter(p)) != NULL)
+		unsleep(p);
+	sched_cpu_lock(curcpu());
 	p->p_stat = SONPROC;
 	atomic_clearbits_int(&p->p_flag, P_INSCHED);
-	SCHED_UNLOCK();
+	sched_cpu_unlock(curcpu());
+	sleep_lock_leave(mtx);
 }
 
 void
@@ -165,12 +170,7 @@ schedule_timeout_uninterruptible(long timeout)
 int
 wake_up_process(struct proc *p)
 {
-	int rv;
-
-	SCHED_LOCK();
-	rv = wakeup_proc(p);
-	SCHED_UNLOCK();
-	return rv;
+	return wakeup_proc(p);
 }
 
 int
@@ -264,6 +264,8 @@ kthread_func(void *arg)
 	struct kthread *thread = arg;
 	int ret;
 
+	KERNEL_LOCK();
+
 	ret = thread->func(thread->data);
 	thread->flags |= KTHREAD_STOPPED;
 	wakeup(thread);
@@ -309,7 +311,6 @@ kthread_destroy_worker(struct kthread_worker *worker)
 {
 	taskq_destroy(worker->tq);
 	free(worker, M_DRM, sizeof(*worker));
-	
 }
 
 void

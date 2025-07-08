@@ -447,6 +447,8 @@ twe_thread(void *v)
 	u_int32_t status;
 	int err;
 
+	KERNEL_LOCK();
+
 	for (;;) {
 		lock = TWE_LOCK(sc);
 

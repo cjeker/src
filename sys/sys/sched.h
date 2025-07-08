@@ -99,21 +99,30 @@ struct cpustats {
 #include <sys/queue.h>
 #include <sys/pclock.h>
 
-#define	SCHED_NQS	32			/* 32 run queues. */
+#define	SCHED_NQS	32		/* 32 run queues. */
+#define	MTX_NUM		8		/* track how many mtx in cpu_info */
 
 struct smr_entry;
 
 /*
  * Per-CPU scheduler state.
+ *	I	immutable after creation
+ *	a	atomic operations
  *	o	owned (modified only) by this CPU
+ *	S	per-cpu scheduler lock
  */
 struct schedstate_percpu {
-	struct proc *spc_idleproc;	/* idle proc for this cpu */
-	TAILQ_HEAD(prochead, proc) spc_qs[SCHED_NQS];
-	TAILQ_HEAD(,proc) spc_deadproc;
-	struct timespec spc_runtime;	/* time curproc started running */
-	volatile int spc_schedflags;	/* flags; see below */
-	u_int spc_schedticks;		/* ticks for schedclock() */
+	struct proc *spc_idleproc;	/* [I] idle proc for this cpu */
+	struct mutex spc_sched_lock;	/* per-cpu scheduler lock */
+	TAILQ_HEAD(prochead, proc) spc_qs[SCHED_NQS];	/* [s] */
+	u_int spc_nrun;			/* [s] procs on the run queues */
+	volatile uint32_t spc_whichqs;	/* [s] which sched queues have work */
+
+	TAILQ_HEAD(,proc) spc_deadproc;	/* [o] */
+	struct timespec spc_runtime;	/* [o] time curproc started running */
+	volatile int spc_schedflags;	/* [a] flags; see below */
+	u_int spc_schedticks;		/* [o] ticks for schedclock() */
+	struct mutex *spc_mtx;		/* [o] mutex held in mi_switch */
 	struct pc_lock spc_cp_time_lock;
 	u_int64_t spc_cp_time[CPUSTATES]; /* CPU state statistics */
 
@@ -122,10 +131,10 @@ struct schedstate_percpu {
 	struct clockintr spc_roundrobin;/* [o] roundrobin handle */
 	struct clockintr spc_statclock;	/* [o] statclock handle */
 
-	u_int spc_nrun;			/* procs on the run queues */
+	volatile u_int spc_spinning;	/* [o] this cpu is currently spinning */
 
-	volatile uint32_t spc_whichqs;
-	volatile u_int spc_spinning;	/* this cpu is currently spinning */
+	void *spc_spin_retaddr;		/* [o] return address of current spin */
+	struct proc *spc_prevproc;	/* [o] prev proc of last cpu_switchto */
 
 	SIMPLEQ_HEAD(, smr_entry) spc_deferred; /* deferred smr calls */
 	u_int spc_ndeferred;		/* number of deferred smr calls */
@@ -164,7 +173,7 @@ void sched_init_cpu(struct cpu_info *);
 void sched_idle(void *);
 void sched_exit(struct proc *);
 void sched_toidle(void);
-void mi_switch(void);
+void mi_switch(struct proc *, struct mutex *);
 void cpu_switchto(struct proc *, struct proc *);
 struct proc *sched_chooseproc(void);
 struct cpu_info *sched_choosecpu(struct proc *);
@@ -172,9 +181,13 @@ struct cpu_info *sched_choosecpu_fork(struct proc *parent, int);
 void cpu_idle_enter(void);
 void cpu_idle_cycle(void);
 void cpu_idle_leave(void);
-void sched_peg_curproc(struct cpu_info *ci);
+void sched_cpu_lock_both(struct cpu_info *, struct cpu_info *);
+void sched_cpu_unlock_both(struct cpu_info *, struct cpu_info *);
+void sched_cpu_unlock_inner(struct cpu_info *, struct cpu_info *);
+void sched_cpu_lock_order(struct cpu_info *, struct cpu_info *);
+void sched_peg_curproc(struct cpu_info *);
 void sched_unpeg_curproc(void);
-void sched_barrier(struct cpu_info *ci);
+void sched_barrier(struct cpu_info *);
 
 int sysctl_hwsetperf(void *, size_t *, void *, size_t);
 int sysctl_hwperfpolicy(void *, size_t *, void *, size_t);
@@ -203,14 +216,12 @@ void remrunqueue(struct proc *);
 		func();							\
 } while (0)
 
-extern struct mutex sched_lock;
+#define	SCHED_CPU_ASSERT_LOCKED(ci)			\
+		MUTEX_ASSERT_LOCKED(&ci->ci_schedstate.spc_sched_lock)
+#define	SCHED_CPU_ASSERT_UNLOCKED()			\
+		MUTEX_ASSERT_UNLOCKED(&ci->ci_schedstate.spc_sched_lock)
 
-#define	SCHED_ASSERT_LOCKED()	MUTEX_ASSERT_LOCKED(&sched_lock)
-#define	SCHED_ASSERT_UNLOCKED()	MUTEX_ASSERT_UNLOCKED(&sched_lock)
-
-#define	SCHED_LOCK_INIT()	mtx_init(&sched_lock, IPL_SCHED)
-#define	SCHED_LOCK()		mtx_enter(&sched_lock)
-#define	SCHED_UNLOCK()		mtx_leave(&sched_lock)
+#define	SCHED_ASSERT_UNLOCKED()		/* nothing */
 
 #endif	/* _KERNEL */
 #endif	/* _SYS_SCHED_H_ */

@@ -40,6 +40,11 @@
 
 int	kthread_create_now;
 
+struct kargs {
+	void (*func)(void *);
+	void *arg;
+};
+
 /*
  * Fork a kernel thread.  Any process can request this to be done.
  * The VM space and limits, etc. will be shared with proc0.
@@ -83,6 +88,8 @@ kthread_create(void (*func)(void *), void *arg,
 void
 kthread_exit(int ecode)
 {
+	/* may be called without KERNEL_LOCK so grab it here again */
+	KERNEL_LOCK();
 
 	/*
 	 * XXX What do we do with the exit code?  Should we even bother
