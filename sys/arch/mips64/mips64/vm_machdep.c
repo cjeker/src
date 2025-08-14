@@ -126,7 +126,7 @@ cpu_fork(struct proc *p1, struct proc *p2, void *stack, void *tcb,
 }
 
 void
-cpu_proc_cleanup(struct proc *p)
+cpu_exit(struct proc *p)
 {
 	struct cpu_info *ci = curcpu();
 

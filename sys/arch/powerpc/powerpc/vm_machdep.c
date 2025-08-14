@@ -129,8 +129,13 @@ cpu_fork(struct proc *p1, struct proc *p2, void *stack, void *tcb,
 	pcb->pcb_sp = (int)stktop2;
 }
 
+/*
+ * Since we don't have curproc anymore, we cannot sleep, and therefore
+ * this is at least incorrect for the multiprocessor version.
+ * Not sure whether we can get away with this in the single proc version.		XXX
+ */
 void
-cpu_proc_cleanup(struct proc *p)
+cpu_exit(struct proc *p)
 {
 	struct cpu_info *ci = curcpu();
 #ifdef ALTIVEC
