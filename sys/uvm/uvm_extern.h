@@ -270,7 +270,6 @@ vaddr_t			uvm_uarea_alloc(void);
 void			uvm_uarea_free(struct proc *);
 void			uvm_purge(void);
 void			uvm_exit(struct process *);
-void			uvm_purge(struct process *);
 void			uvm_init_limits(struct plimit *);
 boolean_t		uvm_kernacc(caddr_t, size_t, int);
 

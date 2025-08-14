@@ -329,39 +329,10 @@ uvm_purge(void)
 void
 uvm_exit(struct process *pr)
 {
-	struct vmspace *ovm = pr->ps_vmspace;
-	struct proc *p = curproc;
-	int s;
-
-	KASSERT(p == pr->ps_mainproc);
-
-	if (__predict_false(ovm == proc0.p_vmspace))
-		return;
-
-	uvmspace_free(ovm);
-}
-
-void
-uvm_purge(struct process *pr)
-{
 	struct vmspace *vm = pr->ps_vmspace;
 
-	/* only proc0 uses shared vm space */
-	if (atomic_load_int(&vm->vm_refcnt) != 1)
-		return;
-
-#ifdef SYSVSHM
-	/* Get rid of any SYSV shared memory segments. */
-	if (vm->vm_shm != NULL) {
-		KERNEL_LOCK();
-		shmexit(vm);
-		KERNEL_UNLOCK();
-	}
-#endif
-
-//	pmap_remove(vm->vm_map.pmap, 0, VM_MAXUSER_ADDRESS);
-
-	uvm_map_teardown(&vm->vm_map);
+	pr->ps_vmspace = NULL;
+	uvmspace_free(vm);
 }
 
 /*
