@@ -270,7 +270,7 @@ fpusave_proc(struct proc *p, int save)
 }
 
 void
-cpu_proc_cleanup(struct proc *p)
+cpu_exit(struct proc *p)
 {
 	if (p->p_md.md_fpstate != NULL) {
 		fpusave_proc(p, 0);

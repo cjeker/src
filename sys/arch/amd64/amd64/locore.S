@@ -395,7 +395,7 @@ restore_saved:
 	testq	%rdi,%rdi
 	jz	.Lsame_cr3
 
-#if 0
+#ifdef DIAGNOSTIC
 	/* verify ci_proc_pmap had been updated properly */
 	cmpq	%rcx,CPUVAR(PROC_PMAP)
 	jnz	.Lbogus_proc_pmap
