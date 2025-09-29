@@ -26,6 +26,12 @@
 #include "bgpd.h"
 #include "rde.h"
 
+struct rib_pq {
+	LIST_ENTRY(rib_pq)	entry;
+	struct prefix		*new;
+	uint32_t		old_pathid_tx;
+};
+
 struct peer_tree	 peertable = RB_INITIALIZER(&peertable);
 struct peer_tree	 zombietable = RB_INITIALIZER(&zombietable);
 struct rde_peer		*peerself;
@@ -162,6 +168,7 @@ peer_add(uint32_t id, struct peer_config *p_conf, struct filter_head *rules)
 	if (peer == NULL)
 		fatal("peer_add");
 
+	TAILQ_INIT(&peer->rib_pq_head);
 	memcpy(&peer->conf, p_conf, sizeof(struct peer_config));
 	peer->remote_bgpid = 0;
 	peer->loc_rib_id = rib_find(peer->conf.rib);
@@ -264,10 +271,6 @@ peer_generate_update(struct rde_peer *peer, struct rib_entry *re,
 	    peer->export_type == EXPORT_DEFAULT_ROUTE)
 		return;
 
-	/* if reconf skip peers which don't need to reconfigure */
-	if (mode == EVAL_RECONF && peer->reconf_out == 0)
-		return;
-
 	/* handle peers with add-path */
 	if (peer_has_add_path(peer, aid, CAPA_AP_SEND)) {
 		if (peer->eval.mode == ADDPATH_EVAL_ALL)
@@ -290,8 +293,68 @@ rde_generate_updates(struct rib_entry *re, struct prefix *newpath,
 {
 	struct rde_peer	*peer;
 
-	RB_FOREACH(peer, peer_tree, &peertable)
-		peer_generate_update(peer, re, newpath, old_pathid_tx, mode);
+	switch (mode) {
+	case EVAL_RECONF:
+		/* skip peers which don't need to reconfigure */
+		RB_FOREACH(peer, peer_tree, &peertable) {
+			if (peer->reconf_out == 0)
+				continue;
+			peer_generate_update(peer, re, NULL, 0, EVAL_RECONF);
+		}
+		return;
+	case EVAL_DEFAULT:
+		break;
+	case EVAL_ALL:
+		/*
+		 * EVAL_DEFAULT is triggered when a new best path is selected.
+		 * EVAL_ALL is sent for any other update (needed for peers with
+		 * addpath or evaluate all set).
+		 * There can be only one EVAL_DEFAULT queued, it replaces the
+		 * previous one. A flag is enough.
+		 * A path can only exist once in the queue (old or new).
+		 */
+		/* XXX */
+		if (rde_evaluate_all() & RDE_ADDPATH_ALL)
+			fatalx("king bula not yet in the house");
+
+		if (re->pq_mode == EVAL_DEFAULT)
+			/* already a best path update pending, nothing to do */
+			return;
+
+		break;
+	}
+
+	if (re->pq_mode) {
+		peer = peer_get(re->pq_peer_id);
+		TAILQ_REMOVE(&peer->rib_pq_head, re, rib_queue);
+	}
+	if (newpath != NULL)
+		peer = prefix_peer(newpath);
+	else
+		peer = peerself;
+	re->pq_mode = mode;
+	re->pq_peer_id = peer->conf.id;
+	TAILQ_INSERT_TAIL(&peer->rib_pq_head, re, rib_queue);
+}
+
+void
+peer_process_updates(struct rde_peer *peer, void *bula)
+{
+	struct rib_entry *re;
+	struct rde_peer *p;
+	enum eval_mode mode;
+
+	re = TAILQ_FIRST(&peer->rib_pq_head);
+	if (re == NULL)
+		return;
+	TAILQ_REMOVE(&peer->rib_pq_head, re, rib_queue);
+
+	mode = re->pq_mode;
+
+	RB_FOREACH(p, peer_tree, &peertable)
+		peer_generate_update(p, re, NULL, 0, mode);
+
+	rib_dequeue(re);
 }
 
 /*
@@ -665,6 +728,8 @@ peer_work_pending(void)
 
 	RB_FOREACH(p, peer_tree, &peertable) {
 		if (ibufq_queuelen(p->ibufq) != 0)
+			return 1;
+		if (!TAILQ_EMPTY(&p->rib_pq_head))
 			return 1;
 	}
 
