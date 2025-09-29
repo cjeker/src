@@ -451,7 +451,7 @@ rde_dispatch_imsg_session(struct imsgbuf *imsgbuf)
 			peer = peer_add(peerid, &pconf, out_rules);
 			/* make sure rde_eval_all is on if needed. */
 			if (peer->conf.flags & PEERFLAG_EVALUATE_ALL)
-				rde_eval_all = 1;
+				rde_eval_all |= RDE_EVAL_ALL;
 			break;
 		case IMSG_SESSION_UP:
 			if ((peer = peer_get(peerid)) == NULL) {
@@ -463,8 +463,11 @@ rde_dispatch_imsg_session(struct imsgbuf *imsgbuf)
 				fatalx("incorrect size of session request");
 			peer_up(peer, &sup);
 			/* make sure rde_eval_all is on if needed. */
-			if (peer_has_add_path(peer, AID_UNSPEC, CAPA_AP_SEND))
-				rde_eval_all = 1;
+			if (peer_has_add_path(peer, AID_UNSPEC, CAPA_AP_SEND)) {
+				rde_eval_all |= RDE_EVAL_ALL;
+				if (peer->eval.mode == ADDPATH_EVAL_ALL)
+					rde_eval_all |= RDE_ADDPATH_ALL;
+			}
 			break;
 		case IMSG_SESSION_DOWN:
 			if ((peer = peer_get(peerid)) == NULL) {
@@ -3903,7 +3906,9 @@ rde_reload_done(void)
 				peer->eval = peer->conf.eval;
 			}
 			/* add-path send needs rde_eval_all */
-			rde_eval_all = 1;
+			rde_eval_all |= RDE_EVAL_ALL;
+			if (peer->eval.mode == ADDPATH_EVAL_ALL)
+				rde_eval_all |= RDE_ADDPATH_ALL;
 		}
 		if (peer->role != peer->conf.role) {
 			if (reload == 0)
@@ -3915,7 +3920,7 @@ rde_reload_done(void)
 		peer->export_type = peer->conf.export_type;
 		peer->flags = peer->conf.flags;
 		if (peer->flags & PEERFLAG_EVALUATE_ALL)
-			rde_eval_all = 1;
+			rde_eval_all |= RDE_EVAL_ALL;
 
 		if (peer->reconf_rib) {
 			if (adjout_prefix_dump_new(peer, AID_UNSPEC,

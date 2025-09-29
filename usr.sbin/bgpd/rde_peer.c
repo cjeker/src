@@ -322,6 +322,10 @@ rde_generate_updates(struct rib_entry *re, struct prefix *newpath,
 		 * previous one. A flag is enough.
 		 * A path can only exist once in the queue (old or new).
 		 */
+		/* XXX */
+		if (rde_evaluate_all() & RDE_ADDPATH_ALL)
+			fatalx("king bula not yet in the house");
+
 		if (re->pq_mode == EVAL_DEFAULT)
 			/* already a best path update pending, nothing to do */
 			return;
