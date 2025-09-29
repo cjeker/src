@@ -40,13 +40,19 @@ enum peer_state {
 LIST_HEAD(prefix_list, prefix);
 TAILQ_HEAD(prefix_queue, prefix);
 RB_HEAD(rib_tree, rib_entry);
+TAILQ_HEAD(rib_queue, rib_entry);
+LIST_HEAD(rib_pq_head, rib_pq);
 
 struct rib_entry {
 	RB_ENTRY(rib_entry)	 rib_e;
+	TAILQ_ENTRY(rib_entry)	 rib_queue;
 	struct prefix_queue	 prefix_h;
 	struct pt_entry		*prefix;
+	struct rib_pq_head	 rib_pq_list;
+	uint32_t		 pq_peer_id;
 	uint16_t		 rib_id;
-	uint16_t		 lock;
+	uint8_t			 lock;
+	uint8_t			 pq_mode;
 };
 
 struct rib {
@@ -88,6 +94,7 @@ struct rde_peer {
 	struct prefix_tree		 withdraws[AID_MAX];
 	struct filter_head		*out_rules;
 	struct ibufqueue		*ibufq;
+	struct rib_queue		 rib_pq_head;
 	monotime_t			 staletime[AID_MAX];
 	uint32_t			 remote_bgpid;
 	uint32_t			 path_id_tx;
@@ -334,9 +341,9 @@ struct filterstate {
 };
 
 enum eval_mode {
+	EVAL_RECONF,
 	EVAL_DEFAULT,
 	EVAL_ALL,
-	EVAL_RECONF,
 };
 
 struct rib_context {
@@ -375,6 +382,8 @@ void		rde_pftable_add(uint16_t, struct prefix *);
 void		rde_pftable_del(uint16_t, struct prefix *);
 
 int		rde_evaluate_all(void);
+#define RDE_EVAL_ALL	0x1
+#define RDE_ADDPATH_ALL	0x2
 uint32_t	rde_local_as(void);
 int		rde_decisionflags(void);
 void		rde_peer_send_rrefresh(struct rde_peer *, uint8_t, uint8_t);
@@ -397,6 +406,7 @@ struct filter_head	*peer_apply_out_filter(struct rde_peer *,
 
 void		 rde_generate_updates(struct rib_entry *, struct prefix *,
 		    uint32_t, enum eval_mode);
+void		 peer_process_updates(struct rde_peer *, void *);
 
 void		 peer_up(struct rde_peer *, struct session_up *);
 void		 peer_down(struct rde_peer *);
@@ -593,6 +603,7 @@ int		 rib_dump_subtree(uint16_t, struct bgpd_addr *, uint8_t,
 		    void (*)(void *, uint8_t),
 		    int (*)(void *));
 void		 rib_dump_terminate(void *);
+void		 rib_dequeue(struct rib_entry *);
 
 extern struct rib flowrib;
 
