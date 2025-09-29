@@ -77,6 +77,12 @@ re_is_locked(struct rib_entry *re)
 	return (re->lock != 0);
 }
 
+static inline int
+re_is_queued(struct rib_entry *re)
+{
+	return (re->pq_mode != 0);
+}
+
 static inline struct rib_tree *
 rib_tree(struct rib *rib)
 {
@@ -334,8 +340,8 @@ rib_remove(struct rib_entry *re)
 	if (!rib_empty(re))
 		fatalx("rib_remove: entry not empty");
 
-	if (re_is_locked(re))
-		/* entry is locked, don't free it. */
+	if (re_is_locked(re) || re_is_queued(re))
+		/* entry is locked or queued, don't free it. */
 		return;
 
 	pt_unref(re->prefix);
@@ -351,6 +357,14 @@ static inline int
 rib_empty(struct rib_entry *re)
 {
 	return TAILQ_EMPTY(&re->prefix_h);
+}
+
+void
+rib_dequeue(struct rib_entry *re)
+{
+	re->pq_mode = 0;
+	if (rib_empty(re))
+		rib_remove(re);
 }
 
 static struct rib_entry *
