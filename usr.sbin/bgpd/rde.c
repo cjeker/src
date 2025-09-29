@@ -4223,7 +4223,7 @@ rde_softreconfig_out(struct rib_entry *re, void *arg)
 		/* no valid path for prefix */
 		return;
 
-	rde_generate_updates(re, NULL, NULL, EVAL_RECONF);
+	rde_generate_updates(re, NULL, 0, EVAL_RECONF);
 }
 
 static void

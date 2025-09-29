@@ -983,6 +983,7 @@ prefix_flowspec_update(struct rde_peer *peer, struct filterstate *state,
 	struct rde_community *comm, *ncomm;
 	struct rib_entry *re;
 	struct prefix *new, *old;
+	uint32_t old_pathid_tx = 0;
 
 	re = rib_get(&flowrib, pte);
 	if (re == NULL)
@@ -1004,7 +1005,9 @@ prefix_flowspec_update(struct rde_peer *peer, struct filterstate *state,
 	    NULL, 0, 0);
 	TAILQ_INSERT_HEAD(&re->prefix_h, new, rib_l);
 
-	rde_generate_updates(re, new, old, EVAL_DEFAULT);
+	if (old != NULL)
+		old_pathid_tx = old->path_id_tx;
+	rde_generate_updates(re, new, old_pathid_tx, EVAL_DEFAULT);
 
 	if (old != NULL) {
 		TAILQ_REMOVE(&re->prefix_h, old, rib_l);
@@ -1030,7 +1033,7 @@ prefix_flowspec_withdraw(struct rde_peer *peer, struct pt_entry *pte)
 	p = prefix_bypeer(re, peer, 0);
 	if (p == NULL)
 		return 0;
-	rde_generate_updates(re, NULL, p, EVAL_DEFAULT);
+	rde_generate_updates(re, NULL, p->path_id_tx, EVAL_DEFAULT);
 	TAILQ_REMOVE(&re->prefix_h, p, rib_l);
 	prefix_unlink(p);
 	prefix_free(p);
