@@ -1108,6 +1108,7 @@ show_rib_mem(struct rde_memstats *stats)
 	    stats->rde_event_loop_usec, stats->rde_event_loop_count);
 	printf("%10lld usec spent on io\n", stats->rde_event_io_usec);
 	printf("%10lld usec spent on peers\n", stats->rde_event_peer_usec);
+	printf("%10lld usec spent on adj-out\n", stats->rde_event_adjout_usec);
 	printf("%10lld usec spent on rib dumps\n",
 	    stats->rde_event_ribdump_usec);
 	printf("%10lld usec spent on nexthops\n",

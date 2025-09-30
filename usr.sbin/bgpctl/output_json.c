@@ -940,6 +940,7 @@ json_rib_mem(struct rde_memstats *stats)
 	json_do_uint("loop_usec", stats->rde_event_loop_usec);
 	json_do_uint("io_usec", stats->rde_event_io_usec);
 	json_do_uint("peer_usec", stats->rde_event_peer_usec);
+	json_do_uint("adjout_usec", stats->rde_event_adjout_usec);
 	json_do_uint("ribdump_usec", stats->rde_event_ribdump_usec);
 	json_do_uint("nexthop_usec", stats->rde_event_nexthop_usec);
 	json_do_uint("update_usec", stats->rde_event_update_usec);

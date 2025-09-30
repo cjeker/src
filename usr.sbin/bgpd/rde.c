@@ -164,7 +164,8 @@ rde_main(int debug, int verbose)
 	struct passwd		*pw;
 	struct pollfd		*pfd = NULL;
 	struct rde_mrt_ctx	*mctx, *xmctx;
-	monotime_t		 loop_start, io_end, peer_end, dump_end, nh_end;
+	monotime_t		 loop_start, io_end, peer_end, adjout_end,
+				 dump_end, nh_end;
 	void			*newp;
 	u_int			 pfd_elms = 0, i, j;
 	int			 timeout;
@@ -325,18 +326,23 @@ rde_main(int debug, int verbose)
 		    monotime_to_usec(monotime_sub(io_end, loop_start));
 
 		peer_foreach(rde_dispatch_imsg_peer, NULL);
-		peer_foreach(peer_process_updates, NULL);
 		peer_reaper(NULL);
 
 		peer_end = getmonotime();
 		rdemem.rde_event_peer_usec +=
 		    monotime_to_usec(monotime_sub(peer_end, io_end));
 
+		peer_foreach(peer_process_updates, NULL);
+
+		adjout_end = getmonotime();
+		rdemem.rde_event_adjout_usec +=
+		    monotime_to_usec(monotime_sub(adjout_end, peer_end));
+
 		rib_dump_runner();
 
 		dump_end = getmonotime();
 		rdemem.rde_event_ribdump_usec +=
-		    monotime_to_usec(monotime_sub(dump_end, peer_end));
+		    monotime_to_usec(monotime_sub(dump_end, adjout_end));
 
 		nexthop_runner();
 
