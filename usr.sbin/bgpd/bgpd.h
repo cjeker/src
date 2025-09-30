@@ -1424,6 +1424,7 @@ struct rde_memstats {
 	long long	rde_event_loop_usec;
 	long long	rde_event_io_usec;
 	long long	rde_event_peer_usec;
+	long long	rde_event_adjout_usec;
 	long long	rde_event_ribdump_usec;
 	long long	rde_event_nexthop_usec;
 	long long	rde_event_update_usec;

@@ -352,6 +352,9 @@ ometric_rib_mem(struct rde_memstats *stats)
 	    (double)stats->rde_event_peer_usec / (1000.0 * 1000.0) ,
 	    OKV("stage"), OKV("peer"), NULL);
 	ometric_set_float_with_labels(rde_evloop_time,
+	    (double)stats->rde_event_adjout_usec / (1000.0 * 1000.0) ,
+	    OKV("stage"), OKV("adjout"), NULL);
+	ometric_set_float_with_labels(rde_evloop_time,
 	    (double)stats->rde_event_ribdump_usec / (1000.0 * 1000.0) ,
 	    OKV("stage"), OKV("ribdumps"), NULL);
 	ometric_set_float_with_labels(rde_evloop_time,
