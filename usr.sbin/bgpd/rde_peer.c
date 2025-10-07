@@ -213,6 +213,7 @@ peer_apply_out_filter(struct rde_peer *peer, struct filter_head *rules)
 {
 	struct filter_head *old;
 	struct filter_rule *fr, *new;
+	enum filter_actions action = ACTION_DENY;
 
 	old = peer->out_rules;
 	if ((peer->out_rules = malloc(sizeof(*peer->out_rules))) == NULL)
@@ -223,7 +224,15 @@ peer_apply_out_filter(struct rde_peer *peer, struct filter_head *rules)
 		if (rde_filter_skip_rule(peer, fr))
 			continue;
 		new = rde_filter_copy(fr);
+		if (new->action == ACTION_ALLOW)
+			action = ACTION_ALLOW;
 		TAILQ_INSERT_TAIL(peer->out_rules, new, entry);
+	}
+
+	/* no allow rule so nothing to export */
+	if (action == ACTION_DENY) {
+		filterlist_free(peer->out_rules);
+		peer->out_rules = NULL;
 	}
 
 	return old;
@@ -261,9 +270,10 @@ peer_generate_update(struct rde_peer *peer, struct rib_entry *re,
 	/* check if peer actually supports the address family */
 	if (peer->capa.mp[aid] == 0)
 		return;
-	/* skip peers with special export types */
+	/* skip peers with special export types or no filters */
 	if (peer->export_type == EXPORT_NONE ||
-	    peer->export_type == EXPORT_DEFAULT_ROUTE)
+	    peer->export_type == EXPORT_DEFAULT_ROUTE ||
+	    peer->out_rules == NULL)
 		return;
 
 	/* handle peers with add-path */
