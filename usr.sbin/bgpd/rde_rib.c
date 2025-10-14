@@ -472,7 +472,7 @@ rib_dump_runner(void)
 		if (ctx->ctx_rib_call != NULL)
 			rib_dump_r(ctx);
 		else
-			prefix_adjout_dump_r(ctx);
+			adjout_prefix_dump_r(ctx);
 	}
 	rib_dump_ctx = ctx;
 }
@@ -493,7 +493,7 @@ rib_dump_free(struct rib_context *ctx)
 	if (ctx->ctx_re)
 		rib_dump_cleanup(ctx);
 	if (ctx->ctx_p)
-		prefix_adjout_dump_cleanup(ctx);
+		adjout_prefix_dump_cleanup(ctx);
 	if (ctx == rib_dump_ctx)
 		rib_dump_ctx = LIST_NEXT(ctx, entry);
 	LIST_REMOVE(ctx, entry);
