@@ -478,8 +478,9 @@ rib_dump_runner(void)
 }
 
 static void
-rib_dump_cleanup(struct rib_entry *re)
+rib_dump_cleanup(struct rib_context *ctx)
 {
+	struct rib_entry *re = ctx->ctx_re;
 	if (rib_empty(re_unlock(re)))
 		rib_remove(re);
 }
@@ -490,9 +491,9 @@ rib_dump_free(struct rib_context *ctx)
 	if (ctx->ctx_done)
 		ctx->ctx_done(ctx->ctx_arg, ctx->ctx_aid);
 	if (ctx->ctx_re)
-		rib_dump_cleanup(ctx->ctx_re);
+		rib_dump_cleanup(ctx);
 	if (ctx->ctx_p)
-		prefix_adjout_dump_cleanup(ctx->ctx_p);
+		prefix_adjout_dump_cleanup(ctx);
 	if (ctx == rib_dump_ctx)
 		rib_dump_ctx = LIST_NEXT(ctx, entry);
 	LIST_REMOVE(ctx, entry);

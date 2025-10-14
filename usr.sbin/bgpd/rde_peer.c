@@ -592,10 +592,9 @@ peer_stale(struct rde_peer *peer, uint8_t aid, int flushall)
 static void
 peer_blast_upcall(struct prefix_adjout *p, void *ptr)
 {
-	struct rde_peer		*peer;
+	struct rde_peer		*peer = ptr;
 
 	if ((p->flags & PREFIX_ADJOUT_FLAG_MASK) == 0) {
-		peer = prefix_adjout_peer(p);
 		/* put entries on the update queue if not already on a queue */
 		p->flags |= PREFIX_ADJOUT_FLAG_UPDATE;
 		if (RB_INSERT(prefix_tree, &peer->updates[p->pt->aid],
