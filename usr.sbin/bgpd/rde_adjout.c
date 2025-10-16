@@ -30,6 +30,105 @@
 #include "log.h"
 #include "chash.h"
 
+/* pending prefix queue functions */
+static struct pend_prefix	*pend_prefix_alloc(struct adjout_attr *,
+				    struct pt_entry *, uint32_t);
+
+static struct pend_prefix *
+pend_prefix_lookup(struct rde_peer *peer, struct pt_entry *pt,
+    uint32_t path_id_tx)
+{
+	struct pend_prefix needle = { .pt = pt, .path_id_tx = path_id_tx };
+
+	return CH_FIND(pend_prefix_hash, &peer->pend_prefixes, &needle);
+}
+
+static void
+pend_prefix_remove(struct pend_prefix *pp, struct pend_prefix_queue *head,
+    struct rde_peer *peer)
+{
+	CH_REMOVE(pend_prefix_hash, &peer->pend_prefixes, pp);
+	TAILQ_REMOVE(head, pp, entry);
+
+	if (pp->attrs == NULL) {
+		peer->stats.pending_withdraw--;
+	} else {
+		if (TAILQ_EMPTY(head)) {
+			/* XXX remove pp->attrs if empty */
+		}
+		peer->stats.pending_update--;
+	}
+}
+
+static void
+pend_prefix_add(struct rde_peer *peer, struct adjout_attr *attrs,
+    struct pt_entry *pt, uint32_t path_id_tx)
+{
+	struct pend_prefix *pp;
+	struct pend_prefix_queue *head;
+
+	pp = pend_prefix_lookup(peer, pt, path_id_tx);
+	if (pp == NULL) {
+		pp = pend_prefix_alloc(attrs, pt, path_id_tx);
+	} else if (pp->attrs == NULL) {
+		head = &peer->withdraws[pp->pt->aid];
+		pend_prefix_remove(pp, head, peer);
+		pp->attrs = attrs;
+	} else {
+		/* notyet */
+	}
+
+	if (attrs == NULL) {
+		head = &peer->withdraws[pp->pt->aid];
+		TAILQ_INSERT_TAIL(head, pp, entry);
+		peer->stats.pending_withdraw++;
+	} else {
+		/* notyet */
+		peer->stats.pending_update++;
+	}
+
+	if (CH_INSERT(pend_prefix_hash, &peer->pend_prefixes, pp, NULL) != 1)
+		fatalx("corrupted pending prefix hash table");
+}
+
+static struct pend_prefix *
+pend_prefix_alloc(struct adjout_attr *attrs, struct pt_entry *pt,
+    uint32_t path_id_tx)
+{
+	struct pend_prefix *pp;
+
+	if ((pp = calloc(1, sizeof(*pp))) == NULL)
+		fatal(__func__);
+	pp->pt = pt_ref(pt);
+	pp->attrs = attrs;
+	pp->path_id_tx = path_id_tx;
+
+	return pp;
+}
+
+void
+pend_prefix_free(struct pend_prefix *pp, struct pend_prefix_queue *head,
+    struct rde_peer *peer)
+{
+	pend_prefix_remove(pp, head, peer);
+	pt_unref(pp->pt);
+	free(pp);
+}
+
+static inline int
+pend_prefix_eq(const struct pend_prefix *a, const struct pend_prefix *b)
+{
+	if (a->pt != b->pt)
+		return 0;
+	if (a->attrs != b->attrs)
+		return 0;
+	if (a->path_id_tx != b->path_id_tx)
+		return 0;
+	return 1;
+}
+
+CH_GENERATE(pend_prefix_hash, pend_prefix, pend_prefix_eq, pend_prefix_hash);
+
 /* adj-rib-out specific functions */
 static SIPHASH_KEY	attrkey;
 
@@ -74,8 +173,7 @@ adjout_attr_alloc(struct rde_aspath *asp, struct rde_community *comm,
 {
 	struct adjout_attr *a;
 
-	a = calloc(1, sizeof(*a));
-	if (a == NULL)
+	if ((a = calloc(1, sizeof(*a))) == NULL)
 		fatal(__func__);
 	rdemem.adjout_attr_cnt++;
 
@@ -361,8 +459,7 @@ adjout_prefix_update(struct adjout_prefix *p, struct rde_peer *peer,
 			fatalx("%s: RB index invariant violated", __func__);
 	}
 
-	if ((p->flags & (PREFIX_ADJOUT_FLAG_WITHDRAW |
-	    PREFIX_ADJOUT_FLAG_DEAD)) == 0) {
+	if ((p->flags & (PREFIX_ADJOUT_FLAG_DEAD)) == 0) {
 		/*
 		 * XXX for now treat a different path_id_tx like different
 		 * attributes and force out an update. It is unclear how
@@ -389,10 +486,6 @@ adjout_prefix_update(struct adjout_prefix *p, struct rde_peer *peer,
 		adjout_prefix_unlink(p, peer);
 		peer->stats.prefix_out_cnt--;
 	}
-	if (p->flags & PREFIX_ADJOUT_FLAG_WITHDRAW) {
-		RB_REMOVE(prefix_tree, &peer->withdraws[pte->aid], p);
-		peer->stats.pending_withdraw--;
-	}
 
 	/* nothing needs to be done for PREFIX_ADJOUT_FLAG_DEAD and STALE */
 	p->flags &= ~PREFIX_ADJOUT_FLAG_MASK;
@@ -414,6 +507,14 @@ adjout_prefix_update(struct adjout_prefix *p, struct rde_peer *peer,
 	if (p->flags & PREFIX_ADJOUT_FLAG_MASK)
 		fatalx("%s: bad flags %x", __func__, p->flags);
 	if (peer_is_up(peer)) {
+		struct pend_prefix *pp;
+
+		if ((pp = pend_prefix_lookup(peer, p->pt, p->path_id_tx)) !=
+		    NULL) {
+			pend_prefix_free(pp, &peer->withdraws[p->pt->aid],
+			    peer);
+		}
+
 		p->flags |= PREFIX_ADJOUT_FLAG_UPDATE;
 		if (RB_INSERT(prefix_tree, &peer->updates[pte->aid], p) != NULL)
 			fatalx("%s: RB tree invariant violated", __func__);
@@ -428,37 +529,10 @@ adjout_prefix_update(struct adjout_prefix *p, struct rde_peer *peer,
 void
 adjout_prefix_withdraw(struct rde_peer *peer, struct adjout_prefix *p)
 {
-	/* already a withdraw, shortcut */
-	if (p->flags & PREFIX_ADJOUT_FLAG_WITHDRAW) {
-		p->flags &= ~PREFIX_ADJOUT_FLAG_STALE;
-		return;
-	}
-	/* pending update just got withdrawn */
-	if (p->flags & PREFIX_ADJOUT_FLAG_UPDATE) {
-		RB_REMOVE(prefix_tree, &peer->updates[p->pt->aid], p);
-		peer->stats.pending_update--;
-	}
-	/* unlink prefix if it was linked (not a withdraw or dead) */
-	if ((p->flags & (PREFIX_ADJOUT_FLAG_WITHDRAW |
-	    PREFIX_ADJOUT_FLAG_DEAD)) == 0) {
-		adjout_prefix_unlink(p, peer);
-		peer->stats.prefix_out_cnt--;
-	}
+	if (peer_is_up(peer))
+		pend_prefix_add(peer, NULL, p->pt, p->path_id_tx);
 
-	/* nothing needs to be done for PREFIX_ADJOUT_FLAG_DEAD and STALE */
-	p->flags &= ~PREFIX_ADJOUT_FLAG_MASK;
-
-	if (peer_is_up(peer)) {
-		p->flags |= PREFIX_ADJOUT_FLAG_WITHDRAW;
-		if (RB_INSERT(prefix_tree, &peer->withdraws[p->pt->aid],
-		    p) != NULL)
-			fatalx("%s: RB tree invariant violated", __func__);
-		peer->stats.pending_withdraw++;
-	} else {
-		/* mark prefix dead to skip unlink on destroy */
-		p->flags |= PREFIX_ADJOUT_FLAG_DEAD;
-		adjout_prefix_destroy(peer, p);
-	}
+	adjout_prefix_destroy(peer, p);
 }
 
 void
@@ -470,17 +544,12 @@ adjout_prefix_destroy(struct rde_peer *peer, struct adjout_prefix *p)
 		return;
 	}
 
-	if (p->flags & PREFIX_ADJOUT_FLAG_WITHDRAW) {
-		RB_REMOVE(prefix_tree, &peer->withdraws[p->pt->aid], p);
-		peer->stats.pending_withdraw--;
-	}
 	if (p->flags & PREFIX_ADJOUT_FLAG_UPDATE) {
 		RB_REMOVE(prefix_tree, &peer->updates[p->pt->aid], p);
 		peer->stats.pending_update--;
 	}
-	/* unlink prefix if it was linked (not a withdraw or dead) */
-	if ((p->flags & (PREFIX_ADJOUT_FLAG_WITHDRAW |
-	    PREFIX_ADJOUT_FLAG_DEAD)) == 0) {
+	/* unlink prefix if it was linked (not dead) */
+	if ((p->flags & PREFIX_ADJOUT_FLAG_DEAD) == 0) {
 		adjout_prefix_unlink(p, peer);
 		peer->stats.prefix_out_cnt--;
 	}
@@ -503,11 +572,12 @@ void
 adjout_prefix_flush_pending(struct rde_peer *peer)
 {
 	struct adjout_prefix *p, *np;
+	struct pend_prefix *pp, *npp;
 	uint8_t aid;
 
 	for (aid = AID_MIN; aid < AID_MAX; aid++) {
-		RB_FOREACH_SAFE(p, prefix_tree, &peer->withdraws[aid], np) {
-			adjout_prefix_destroy(peer, p);
+		TAILQ_FOREACH_SAFE(pp, &peer->withdraws[aid], entry, npp) {
+			pend_prefix_free(pp, &peer->withdraws[aid], peer);
 		}
 		RB_FOREACH_SAFE(p, prefix_tree, &peer->updates[aid], np) {
 			p->flags &= ~PREFIX_ADJOUT_FLAG_UPDATE;

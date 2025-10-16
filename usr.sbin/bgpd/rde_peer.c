@@ -158,6 +158,7 @@ peer_add(uint32_t id, struct peer_config *p_conf, struct filter_head *rules)
 {
 	struct rde_peer		*peer;
 	int			 conflict;
+	unsigned int		 i;
 
 	if ((peer = peer_get(id))) {
 		memcpy(&peer->conf, p_conf, sizeof(struct peer_config));
@@ -169,6 +170,10 @@ peer_add(uint32_t id, struct peer_config *p_conf, struct filter_head *rules)
 		fatal("peer_add");
 
 	TAILQ_INIT(&peer->rib_pq_head);
+	CH_INIT(pend_prefix_hash, &peer->pend_prefixes);
+	for (i = 0; i < nitems(peer->withdraws); i++)
+		TAILQ_INIT(&peer->withdraws[i]);
+
 	memcpy(&peer->conf, p_conf, sizeof(struct peer_config));
 	peer->remote_bgpid = 0;
 	peer->loc_rib_id = rib_find(peer->conf.rib);

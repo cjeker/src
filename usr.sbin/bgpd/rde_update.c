@@ -819,19 +819,13 @@ up_is_eor(struct rde_peer *peer, uint8_t aid)
 
 static void
 up_prefix_free(struct prefix_tree *prefix_head, struct adjout_prefix *p,
-    struct rde_peer *peer, int withdraw)
+    struct rde_peer *peer)
 {
-	if (withdraw) {
-		/* prefix no longer needed, remove it */
-		adjout_prefix_destroy(peer, p);
-		peer->stats.prefix_sent_withdraw++;
-	} else {
-		/* prefix still in Adj-RIB-Out, keep it */
-		RB_REMOVE(prefix_tree, prefix_head, p);
-		p->flags &= ~PREFIX_ADJOUT_FLAG_UPDATE;
-		peer->stats.pending_update--;
-		peer->stats.prefix_sent_update++;
-	}
+	/* prefix still in Adj-RIB-Out, keep it */
+	RB_REMOVE(prefix_tree, prefix_head, p);
+	p->flags &= ~PREFIX_ADJOUT_FLAG_UPDATE;
+	peer->stats.pending_update--;
+	peer->stats.prefix_sent_update++;
 }
 
 /*
@@ -861,9 +855,34 @@ up_dump_prefix(struct ibuf *buf, struct prefix_tree *prefix_head,
 			done = 1;
 
 		rv = 0;
-		up_prefix_free(prefix_head, p, peer, withdraw);
+		up_prefix_free(prefix_head, p, peer);
 		if (done)
 			break;
+	}
+	return rv;
+}
+
+static int
+up_dump_prefix_xxx(struct ibuf *buf, struct pend_prefix_queue *prefix_head,
+    struct rde_peer *peer, int withdraw)
+{
+	struct pend_prefix	*p, *np;
+	int			 has_ap = -1, rv = -1;
+
+	TAILQ_FOREACH_SAFE(p, prefix_head, entry, np) {
+		if (has_ap == -1)
+			has_ap = peer_has_add_path(peer, p->pt->aid,
+			    CAPA_AP_SEND);
+		if (pt_writebuf(buf, p->pt, withdraw, has_ap, p->path_id_tx) ==
+		    -1)
+			break;
+
+		rv = 0;
+		if (withdraw)
+			peer->stats.prefix_sent_withdraw++;
+		else
+			peer->stats.prefix_sent_update++;
+		pend_prefix_free(p, prefix_head, peer);
 	}
 	return rv;
 }
@@ -1050,7 +1069,7 @@ up_dump_withdraws(struct imsgbuf *imsg, struct rde_peer *peer, uint8_t aid)
 			goto fail;
 	}
 
-	if (up_dump_prefix(buf, &peer->withdraws[aid], peer, 1) == -1)
+	if (up_dump_prefix_xxx(buf, &peer->withdraws[aid], peer, 1) == -1)
 		goto fail;
 
 	/* update length field (either withdrawn routes or attribute length) */
@@ -1229,7 +1248,7 @@ up_dump_update(struct imsgbuf *imsg, struct rde_peer *peer, uint8_t aid)
 	log_peer_warnx(&peer->conf, "generating update failed, "
 	    "prefix %s/%d dropped", log_addr(&addr), p->pt->prefixlen);
 
-	up_prefix_free(&peer->updates[aid], p, peer, 0);
+	up_prefix_free(&peer->updates[aid], p, peer);
 	if (up_dump_withdraw_one(peer, p, buf) == -1)
 		goto fail;
 	imsg_close(imsg, buf);

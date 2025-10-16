@@ -27,6 +27,7 @@
 
 #include "bgpd.h"
 #include "log.h"
+#include "chash.h"
 
 /* rde internal structures */
 
@@ -80,6 +81,9 @@ RB_HEAD(peer_tree, rde_peer);
 RB_HEAD(prefix_tree, adjout_prefix);
 RB_HEAD(prefix_index, adjout_prefix);
 
+CH_HEAD(pend_prefix_hash, pend_prefix);
+TAILQ_HEAD(pend_prefix_queue, pend_prefix);
+
 struct rde_peer {
 	RB_ENTRY(rde_peer)		 entry;
 	struct peer_config		 conf;
@@ -90,8 +94,9 @@ struct rde_peer {
 	struct capabilities		 capa;
 	struct addpath_eval		 eval;
 	struct prefix_index		 adj_rib_out;
+	struct pend_prefix_hash		 pend_prefixes;
 	struct prefix_tree		 updates[AID_MAX];
-	struct prefix_tree		 withdraws[AID_MAX];
+	struct pend_prefix_queue	 withdraws[AID_MAX];
 	struct filter_head		*out_rules;
 	struct ibufqueue		*ibufq;
 	struct rib_queue		 rib_pq_head;
@@ -326,13 +331,19 @@ struct adjout_prefix {
 	uint32_t			 path_id_tx;
 	uint8_t			 	 flags;
 };
-#define	PREFIX_ADJOUT_FLAG_WITHDRAW	0x01	/* enqueued on withdraw queue */
 #define	PREFIX_ADJOUT_FLAG_UPDATE	0x02	/* enqueued on update queue */
 #define	PREFIX_ADJOUT_FLAG_DEAD		0x04	/* locked but removed */
 #define	PREFIX_ADJOUT_FLAG_STALE	0x08	/* stale entry (for addpath) */
 #define	PREFIX_ADJOUT_FLAG_MASK		0x0f	/* mask for the prefix types */
 #define	PREFIX_ADJOUT_FLAG_EOR		0x10	/* prefix is EoR */
 #define	PREFIX_ADJOUT_FLAG_LOCKED	0x20	/* locked by rib walker */
+
+struct pend_prefix {
+	TAILQ_ENTRY(pend_prefix)	entry;
+	struct pt_entry			*pt;
+	struct adjout_attr		*attrs;
+	uint32_t			 path_id_tx;
+};
 
 struct filterstate {
 	struct rde_aspath	 aspath;
@@ -781,6 +792,17 @@ adjout_prefix_nexthop(struct adjout_prefix *p)
 {
 	return (p->attrs->nexthop);
 }
+
+static inline uint64_t
+pend_prefix_hash(const struct pend_prefix *pp)
+{
+	return ch_qhash64(ch_qhash64(0, pp->path_id_tx), (uintptr_t)pp->pt);
+}
+
+CH_PROTOTYPE(pend_prefix_hash, pend_prefix, pend_prefix_hash);
+
+void		 pend_prefix_free(struct pend_prefix *,
+		    struct pend_prefix_queue *, struct rde_peer *);
 
 /* rde_update.c */
 void		 up_generate_updates(struct rde_peer *, struct rib_entry *);
