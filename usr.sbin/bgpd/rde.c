@@ -3572,7 +3572,7 @@ rde_update_queue_pending(void)
 			continue;
 		for (aid = AID_MIN; aid < AID_MAX; aid++) {
 			if (!RB_EMPTY(&peer->updates[aid]) ||
-			    !RB_EMPTY(&peer->withdraws[aid]))
+			    !TAILQ_EMPTY(&peer->withdraws[aid]))
 				return 1;
 		}
 	}
@@ -3595,7 +3595,7 @@ rde_update_queue_runner(uint8_t aid)
 				continue;
 			if (peer->throttled)
 				continue;
-			if (RB_EMPTY(&peer->withdraws[aid]))
+			if (TAILQ_EMPTY(&peer->withdraws[aid]))
 				continue;
 
 			up_dump_withdraws(ibuf_se, peer, aid);
