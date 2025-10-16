@@ -3154,7 +3154,6 @@ rde_dump_adjout_upcall(struct adjout_prefix *p, void *ptr)
 		return;
 	if (p->flags & PREFIX_ADJOUT_FLAG_WITHDRAW)
 		return;
-
 	rde_dump_adjout_filter(peer, p, &ctx->req);
 }
 
