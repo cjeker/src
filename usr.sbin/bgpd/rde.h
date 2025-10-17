@@ -78,11 +78,12 @@ struct rib {
  * Currently I assume that we can do that with the neighbor_ip...
  */
 RB_HEAD(peer_tree, rde_peer);
-RB_HEAD(prefix_tree, adjout_prefix);
 RB_HEAD(prefix_index, adjout_prefix);
 
 CH_HEAD(pend_prefix_hash, pend_prefix);
 TAILQ_HEAD(pend_prefix_queue, pend_prefix);
+CH_HEAD(pend_attr_hash, pend_prefix);
+TAILQ_HEAD(pend_attr_queue, pend_attr);
 
 struct rde_peer {
 	RB_ENTRY(rde_peer)		 entry;
@@ -95,7 +96,8 @@ struct rde_peer {
 	struct addpath_eval		 eval;
 	struct prefix_index		 adj_rib_out;
 	struct pend_prefix_hash		 pend_prefixes;
-	struct prefix_tree		 updates[AID_MAX];
+	struct pend_attr_hash		 pend_attrs;
+	struct pend_attr_queue		 updates[AID_MAX];
 	struct pend_prefix_queue	 withdraws[AID_MAX];
 	struct filter_head		*out_rules;
 	struct ibufqueue		*ibufq;
@@ -323,23 +325,27 @@ struct adjout_attr {
 };
 
 struct adjout_prefix {
-	RB_ENTRY(adjout_prefix)		 index, update;
+	RB_ENTRY(adjout_prefix)		 index;
 	struct pt_entry			*pt;
 	struct adjout_attr		*attrs;
 	uint32_t			 path_id_tx;
 	uint8_t			 	 flags;
 };
-#define	PREFIX_ADJOUT_FLAG_UPDATE	0x02	/* enqueued on update queue */
 #define	PREFIX_ADJOUT_FLAG_DEAD		0x04	/* locked but removed */
 #define	PREFIX_ADJOUT_FLAG_STALE	0x08	/* stale entry (for addpath) */
 #define	PREFIX_ADJOUT_FLAG_MASK		0x0f	/* mask for the prefix types */
-#define	PREFIX_ADJOUT_FLAG_EOR		0x10	/* prefix is EoR */
 #define	PREFIX_ADJOUT_FLAG_LOCKED	0x20	/* locked by rib walker */
 
-struct pend_prefix {
-	TAILQ_ENTRY(pend_prefix)	entry;
-	struct pt_entry			*pt;
+struct pend_attr {
+	TAILQ_ENTRY(pend_attr)		 entry;
+	struct pend_prefix_queue	 prefixes;
 	struct adjout_attr		*attrs;
+};
+
+struct pend_prefix {
+	TAILQ_ENTRY(pend_prefix)	 entry;
+	struct pt_entry			*pt;
+	struct pend_attr		*attrs;
 	uint32_t			 path_id_tx;
 };
 
@@ -659,8 +665,6 @@ struct prefix	*prefix_bypeer(struct rib_entry *, struct rde_peer *,
 		    uint32_t);
 void		 prefix_destroy(struct prefix *);
 
-RB_PROTOTYPE(prefix_tree, adjout_prefix, entry, prefix_cmp)
-
 static inline struct rde_peer *
 prefix_peer(struct prefix *p)
 {
@@ -799,6 +803,19 @@ pend_prefix_hash(const struct pend_prefix *pp)
 
 CH_PROTOTYPE(pend_prefix_hash, pend_prefix, pend_prefix_hash);
 
+static inline uint64_t
+pend_attr_hash(const struct pend_attr *pa)
+{
+	return ch_qhash64(0, (uintptr_t)pa->attrs);
+}
+
+CH_PROTOTYPE(pend_attr_hash, pend_attr, pend_attr_hash);
+
+void		 pend_attr_done(struct pend_attr *,
+		    struct pend_attr_queue *, struct rde_peer *);
+void		 pend_eor_add(struct rde_peer *, uint8_t);
+void		 pend_prefix_add(struct rde_peer *, struct adjout_attr *,
+		    struct pt_entry *, uint32_t);
 void		 pend_prefix_free(struct pend_prefix *,
 		    struct pend_prefix_queue *, struct rde_peer *);
 

@@ -170,7 +170,10 @@ peer_add(uint32_t id, struct peer_config *p_conf, struct filter_head *rules)
 		fatal("peer_add");
 
 	TAILQ_INIT(&peer->rib_pq_head);
+	CH_INIT(pend_attr_hash, &peer->pend_attrs);
 	CH_INIT(pend_prefix_hash, &peer->pend_prefixes);
+	for (i = 0; i < nitems(peer->updates); i++)
+		TAILQ_INIT(&peer->updates[i]);
 	for (i = 0; i < nitems(peer->withdraws); i++)
 		TAILQ_INIT(&peer->withdraws[i]);
 
@@ -599,14 +602,7 @@ peer_blast_upcall(struct adjout_prefix *p, void *ptr)
 {
 	struct rde_peer		*peer = ptr;
 
-	if ((p->flags & PREFIX_ADJOUT_FLAG_MASK) == 0) {
-		/* put entries on the update queue if not already on a queue */
-		p->flags |= PREFIX_ADJOUT_FLAG_UPDATE;
-		if (RB_INSERT(prefix_tree, &peer->updates[p->pt->aid],
-		    p) != NULL)
-			fatalx("%s: RB tree invariant violated", __func__);
-		peer->stats.pending_update++;
-	}
+	pend_prefix_add(peer, p->attrs, p->pt, p->path_id_tx);
 }
 
 /*
@@ -621,7 +617,7 @@ peer_blast_done(void *ptr, uint8_t aid)
 	/* Adj-RIB-Out ready, unthrottle peer and inject EOR */
 	peer->throttled = 0;
 	if (peer->capa.grestart.restart)
-		prefix_add_eor(peer, aid);
+		pend_eor_add(peer, aid);
 }
 
 /*

@@ -1392,6 +1392,8 @@ struct rde_memstats {
 	long long	path_refs;
 	long long	prefix_cnt;
 	long long	adjout_prefix_cnt;
+	long long	pend_prefix_cnt;
+	long long	pend_attr_cnt;
 	long long	rib_cnt;
 	long long	pt_cnt[AID_MAX];
 	long long	pt_size[AID_MAX];

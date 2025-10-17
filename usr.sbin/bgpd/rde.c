@@ -3571,7 +3571,7 @@ rde_update_queue_pending(void)
 		if (peer->throttled)
 			continue;
 		for (aid = AID_MIN; aid < AID_MAX; aid++) {
-			if (!RB_EMPTY(&peer->updates[aid]) ||
+			if (!TAILQ_EMPTY(&peer->updates[aid]) ||
 			    !TAILQ_EMPTY(&peer->withdraws[aid]))
 				return 1;
 		}
@@ -3615,7 +3615,7 @@ rde_update_queue_runner(uint8_t aid)
 				continue;
 			if (peer->throttled)
 				continue;
-			if (RB_EMPTY(&peer->updates[aid]))
+			if (TAILQ_EMPTY(&peer->updates[aid]))
 				continue;
 
 			if (up_is_eor(peer, aid)) {
