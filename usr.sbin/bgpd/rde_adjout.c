@@ -33,6 +33,21 @@
 static struct adjout_attr	*adjout_attr_ref(struct adjout_attr *);
 static void			 adjout_attr_unref(struct adjout_attr *);
 
+static inline uint64_t
+pend_prefix_hash(const struct pend_prefix *pp)
+{
+	return ch_qhash64(ch_qhash64(0, pp->path_id_tx), (uintptr_t)pp->pt);
+}
+
+static inline uint64_t
+pend_attr_hash(const struct pend_attr *pa)
+{
+	return ch_qhash64(0, (uintptr_t)pa->attrs);
+}
+
+CH_PROTOTYPE(pend_prefix_hash, pend_prefix, pend_prefix_hash);
+CH_PROTOTYPE(pend_attr_hash, pend_attr, pend_attr_hash);
+
 /* pending prefix queue functions */
 static struct pend_attr *
 pend_attr_alloc(struct adjout_attr *attrs, struct pend_attr_queue *head,
@@ -834,4 +849,17 @@ adjout_prefix_free(struct adjout_prefix *p)
 {
 	rdemem.adjout_prefix_cnt--;
 	free(p);
+}
+
+void
+adjout_peer_init(struct rde_peer *peer)
+{
+	unsigned int i;
+
+	CH_INIT(pend_attr_hash, &peer->pend_attrs);
+	CH_INIT(pend_prefix_hash, &peer->pend_prefixes);
+	for (i = 0; i < nitems(peer->updates); i++)
+		TAILQ_INIT(&peer->updates[i]);
+	for (i = 0; i < nitems(peer->withdraws); i++)
+		TAILQ_INIT(&peer->withdraws[i]);
 }
