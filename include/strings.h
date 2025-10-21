@@ -71,6 +71,8 @@ char	*rindex(const char *, int);
 
 #if __XPG_VISIBLE >= 420
 int	 ffs(int);
+int	 ffsl(long);
+int	 ffsll(long long);
 int	 strcasecmp(const char *, const char *);
 int	 strncasecmp(const char *, const char *, size_t);
 #endif
