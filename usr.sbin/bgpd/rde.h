@@ -777,31 +777,11 @@ int		 adjout_prefix_dump_subtree(struct rde_peer *,
 		    void (*)(struct adjout_prefix *, void *),
 		    void (*)(void *, uint8_t), int (*)(void *));
 
-static inline struct rde_aspath *
-adjout_prefix_aspath(struct adjout_prefix *p)
-{
-	return (p->attrs->aspath);
-}
-
-static inline struct rde_community *
-adjout_prefix_communities(struct adjout_prefix *p)
-{
-	return (p->attrs->communities);
-}
-
-static inline struct nexthop *
-adjout_prefix_nexthop(struct adjout_prefix *p)
-{
-	return (p->attrs->nexthop);
-}
-
 static inline uint64_t
 pend_prefix_hash(const struct pend_prefix *pp)
 {
 	return ch_qhash64(ch_qhash64(0, pp->path_id_tx), (uintptr_t)pp->pt);
 }
-
-CH_PROTOTYPE(pend_prefix_hash, pend_prefix, pend_prefix_hash);
 
 static inline uint64_t
 pend_attr_hash(const struct pend_attr *pa)
@@ -809,6 +789,7 @@ pend_attr_hash(const struct pend_attr *pa)
 	return ch_qhash64(0, (uintptr_t)pa->attrs);
 }
 
+CH_PROTOTYPE(pend_prefix_hash, pend_prefix, pend_prefix_hash);
 CH_PROTOTYPE(pend_attr_hash, pend_attr, pend_attr_hash);
 
 void		 pend_attr_done(struct pend_attr *,

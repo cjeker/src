@@ -538,11 +538,12 @@ adjout_prefix_update(struct adjout_prefix *p, struct rde_peer *peer,
 		 * common it is to have equivalent updates from alternative
 		 * paths.
 		 */
+		attrs = p->attrs;
 		if (p->path_id_tx == path_id_tx &&
-		    adjout_prefix_nexthop(p) == state->nexthop &&
+		    attrs->nexthop == state->nexthop &&
 		    communities_equal(&state->communities,
-		    adjout_prefix_communities(p)) &&
-		    path_equal(&state->aspath, adjout_prefix_aspath(p))) {
+		    attrs->communities) &&
+		    path_equal(&state->aspath, attrs->aspath)) {
 			/* nothing changed */
 			p->flags &= ~PREFIX_ADJOUT_FLAG_STALE;
 			return;

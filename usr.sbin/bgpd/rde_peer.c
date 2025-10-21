@@ -601,8 +601,11 @@ static void
 peer_blast_upcall(struct adjout_prefix *p, void *ptr)
 {
 	struct rde_peer		*peer = ptr;
+	struct adjout_attr	*attrs = NULL;
 
-	pend_prefix_add(peer, p->attrs, p->pt, p->path_id_tx);
+	attrs = p->attrs;
+
+	pend_prefix_add(peer, attrs, p->pt, p->path_id_tx);
 }
 
 /*
