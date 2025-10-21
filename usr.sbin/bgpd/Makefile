@@ -2,6 +2,7 @@
 
 PROG=	bgpd
 SRCS=	bgpd.c
+SRCS+=	bitmap.c
 SRCS+=	carp.c
 SRCS+=	chash.c
 SRCS+=	config.c

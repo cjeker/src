@@ -253,6 +253,10 @@ TAILQ_HEAD(timer_head, timer);
 TAILQ_HEAD(listen_addrs, listen_addr);
 TAILQ_HEAD(filter_set_head, filter_set);
 
+struct bitmap {
+	uint64_t	data[2];
+};
+
 struct peer;
 RB_HEAD(peer_head, peer);
 
@@ -1580,6 +1584,18 @@ int	filterset_cmp(struct filter_set *, struct filter_set *);
 void	filterset_move(struct filter_set_head *, struct filter_set_head *);
 void	filterset_copy(struct filter_set_head *, struct filter_set_head *);
 const char	*filterset_name(enum action_types);
+
+/* bitmap.c */
+int		 bitmap_set(struct bitmap *, uint32_t);
+int		 bitmap_test(struct bitmap *, uint32_t);
+void		 bitmap_clear(struct bitmap *, uint32_t);
+int		 bitmap_empty(struct bitmap *);
+
+int		 bitmap_id_get(struct bitmap *, uint32_t *);
+void		 bitmap_id_put(struct bitmap *, uint32_t);
+
+void		 bitmap_init(struct bitmap *);
+void		 bitmap_reset(struct bitmap *);
 
 /* rde_sets.c */
 struct as_set	*as_sets_lookup(struct as_set_head *, const char *);

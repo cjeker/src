@@ -10,6 +10,7 @@ PROGS += rde_aspa_test
 PROGS += rde_flowspec_test
 PROGS += chash_sub_test
 PROGS += chash_test
+PROGS += bitmap_test
 
 .for p in ${PROGS}
 REGRESS_TARGETS += run-regress-$p
@@ -48,5 +49,6 @@ SRCS_rde_flowspec_test=	rde_flowspec_test.c flowspec.c util.c
 
 SRCS_chash_sub_test=	chash_sub_test.c
 SRCS_chash_test=	chash_test.c chash.c
+SRCS_bitmap_test=	bitmap_test.c bitmap.c
 
 .include <bsd.regress.mk>
