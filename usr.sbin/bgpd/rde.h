@@ -333,9 +333,7 @@ struct adjout_prefix {
 	uint32_t			 path_id_tx;
 	uint8_t			 	 flags;
 };
-#define	PREFIX_ADJOUT_FLAG_DEAD		0x04	/* locked but removed */
-#define	PREFIX_ADJOUT_FLAG_STALE	0x08	/* stale entry (for addpath) */
-#define	PREFIX_ADJOUT_FLAG_MASK		0x0f	/* mask for the prefix types */
+#define	PREFIX_ADJOUT_FLAG_STALE	0x01	/* stale entry (for addpath) */
 #define	PREFIX_ADJOUT_FLAG_LOCKED	0x20	/* locked by rib walker */
 
 struct pend_attr {
