@@ -3085,14 +3085,14 @@ rde_dump_filter(struct prefix *p, struct ctl_show_rib_request *req)
 
 static void
 rde_dump_adjout_filter(struct rde_peer *peer, struct adjout_prefix *p,
-     struct adjout_attr *attrs, struct ctl_show_rib_request *req)
+      struct ctl_show_rib_request *req)
 {
-	struct rde_aspath	*asp;
+	struct adjout_attr *attrs = p->attrs;
+	struct rde_aspath *asp = attrs->aspath;
 
 	if (!rde_match_peer(peer, &req->neighbor))
 		return;
 
-	asp = attrs->aspath;
 	if ((req->flags & F_CTL_HAS_PATHID)) {
 		/* Match against the transmit path id if adjout is used.  */
 		if (req->path_id != p->path_id_tx)
@@ -3122,17 +3122,12 @@ rde_dump_upcall(struct rib_entry *re, void *ptr)
 }
 
 static void
-rde_dump_adjout_upcall(struct adjout_prefix *p, void *ptr)
+rde_dump_adjout_upcall(struct rde_peer *peer, struct adjout_prefix *p,
+    void *ptr)
 {
 	struct rde_dump_ctx	*ctx = ptr;
-	struct rde_peer		*peer;
-	struct adjout_attr	*attrs;
 
-	if ((peer = peer_get(ctx->peerid)) == NULL)
-		return;
-
-	attrs = p->attrs;
-	rde_dump_adjout_filter(peer, p, attrs, &ctx->req);
+	rde_dump_adjout_filter(peer, p, &ctx->req);
 }
 
 static int
@@ -3269,7 +3264,7 @@ rde_dump_ctx_new(struct ctl_show_rib_request *req, pid_t pid,
 						/* dump all matching paths */
 						while (p != NULL) {
 							rde_dump_adjout_upcall(
-							    p, ctx);
+							    peer, p, ctx);
 							p = adjout_prefix_next(
 							    peer, p);
 						}
@@ -3284,7 +3279,7 @@ rde_dump_ctx_new(struct ctl_show_rib_request *req, pid_t pid,
 				}
 				/* dump all matching paths */
 				while (p != NULL) {
-					rde_dump_adjout_upcall(p, ctx);
+					rde_dump_adjout_upcall(peer, p, ctx);
 					p = adjout_prefix_next(peer, p);
 				}
 			} while ((peer = peer_match(&req->neighbor,
@@ -3548,10 +3543,8 @@ rde_evaluate_all(void)
 
 /* flush Adj-RIB-Out by withdrawing all prefixes */
 static void
-rde_up_flush_upcall(struct adjout_prefix *p, void *ptr)
+rde_up_flush_upcall(struct rde_peer *peer, struct adjout_prefix *p, void *ptr)
 {
-	struct rde_peer *peer = ptr;
-
 	adjout_prefix_withdraw(peer, p);
 }
 
