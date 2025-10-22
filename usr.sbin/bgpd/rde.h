@@ -371,7 +371,8 @@ struct rib_context {
 	struct adjout_prefix		*ctx_p;
 	uint32_t			 ctx_id;
 	void		(*ctx_rib_call)(struct rib_entry *, void *);
-	void		(*ctx_prefix_call)(struct adjout_prefix *, void *);
+	void		(*ctx_prefix_call)(struct rde_peer *,
+			    struct adjout_prefix *, void *);
 	void		(*ctx_done)(void *, uint8_t);
 	int		(*ctx_throttle)(void *);
 	void				*ctx_arg;
@@ -772,11 +773,11 @@ void		 adjout_prefix_dump_cleanup(struct rib_context *);
 void		 adjout_prefix_dump_r(struct rib_context *);
 int		 adjout_prefix_dump_new(struct rde_peer *, uint8_t,
 		    unsigned int, void *,
-		    void (*)(struct adjout_prefix *, void *),
+		    void (*)(struct rde_peer *, struct adjout_prefix *, void *),
 		    void (*)(void *, uint8_t), int (*)(void *));
 int		 adjout_prefix_dump_subtree(struct rde_peer *,
 		    struct bgpd_addr *, uint8_t, unsigned int, void *,
-		    void (*)(struct adjout_prefix *, void *),
+		    void (*)(struct rde_peer *, struct adjout_prefix *, void *),
 		    void (*)(void *, uint8_t), int (*)(void *));
 void		 adjout_peer_init(struct rde_peer *);
 

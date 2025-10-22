@@ -731,7 +731,7 @@ adjout_prefix_dump_r(struct rib_context *ctx)
 			ctx->ctx_p = adjout_prefix_lock(p);
 			return;
 		}
-		ctx->ctx_prefix_call(p, ctx->ctx_arg);
+		ctx->ctx_prefix_call(peer, p, ctx->ctx_arg);
 	}
 
 done:
@@ -742,9 +742,11 @@ done:
 }
 
 int
-adjout_prefix_dump_new(struct rde_peer *peer, uint8_t aid, unsigned int count,
-    void *arg, void (*upcall)(struct adjout_prefix *, void *),
-    void (*done)(void *, uint8_t), int (*throttle)(void *))
+adjout_prefix_dump_new(struct rde_peer *peer, uint8_t aid,
+    unsigned int count, void *arg,
+    void (*upcall)(struct rde_peer *, struct adjout_prefix *, void *),
+    void (*done)(void *, uint8_t),
+    int (*throttle)(void *))
 {
 	struct rib_context *ctx;
 
@@ -770,7 +772,7 @@ adjout_prefix_dump_new(struct rde_peer *peer, uint8_t aid, unsigned int count,
 int
 adjout_prefix_dump_subtree(struct rde_peer *peer, struct bgpd_addr *subtree,
     uint8_t subtreelen, unsigned int count, void *arg,
-    void (*upcall)(struct adjout_prefix *, void *),
+    void (*upcall)(struct rde_peer *, struct adjout_prefix *, void *),
     void (*done)(void *, uint8_t),
     int (*throttle)(void *))
 {
