@@ -592,9 +592,10 @@ peer_stale(struct rde_peer *peer, uint8_t aid, int flushall)
  * Enqueue a prefix onto the update queue so it can be sent out.
  */
 static void
-peer_blast_upcall(struct rde_peer *peer, struct adjout_prefix *p, void *ptr)
+peer_blast_upcall(struct rde_peer *peer, struct pt_entry *pte,
+    struct adjout_prefix *p, void *ptr)
 {
-	pend_prefix_add(peer, p->attrs, p->pt, p->path_id_tx);
+	pend_prefix_add(peer, p->attrs, pte, p->path_id_tx);
 }
 
 /*
