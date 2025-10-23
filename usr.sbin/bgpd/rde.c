@@ -2971,8 +2971,8 @@ rde_dump_rib_as(struct prefix *p, struct rde_aspath *asp, pid_t pid, int flags)
 }
 
 static void
-rde_dump_adjout_as(struct rde_peer *peer, struct adjout_prefix *p,
-    struct adjout_attr *attrs, pid_t pid, int flags)
+rde_dump_adjout_as(struct rde_peer *peer, struct pt_entry *pte,
+    struct adjout_prefix *p, struct adjout_attr *attrs, pid_t pid, int flags)
 {
 	struct ctl_show_rib	 rib;
 	struct ibuf		*wbuf;
@@ -2997,11 +2997,11 @@ rde_dump_adjout_as(struct rde_peer *peer, struct adjout_prefix *p,
 		rib.true_nexthop = nexthop->true_nexthop;
 	} else {
 		/* announced network can have a NULL nexthop */
-		rib.exit_nexthop.aid = p->pt->aid;
-		rib.true_nexthop.aid = p->pt->aid;
+		rib.exit_nexthop.aid = pte->aid;
+		rib.true_nexthop.aid = pte->aid;
 	}
-	pt_getaddr(p->pt, &rib.prefix);
-	rib.prefixlen = p->pt->prefixlen;
+	pt_getaddr(pte, &rib.prefix);
+	rib.prefixlen = pte->prefixlen;
 	rib.origin = asp->origin;
 	/* roa and aspa vstate skipped, they don't matter in adj-rib-out */
 	rib.flags = 0;
@@ -3010,7 +3010,7 @@ rde_dump_adjout_as(struct rde_peer *peer, struct adjout_prefix *p,
 		rib.flags |= F_PREF_INTERNAL;
 	if (asp->flags & F_PREFIX_ANNOUNCED)
 		rib.flags |= F_PREF_ANNOUNCE;
-	if (peer_has_add_path(peer, p->pt->aid, CAPA_AP_SEND)) {
+	if (peer_has_add_path(peer, pte->aid, CAPA_AP_SEND)) {
 		rib.path_id = p->path_id_tx;
 		rib.flags |= F_PREF_PATH_ID;
 	}
@@ -3108,8 +3108,8 @@ rde_dump_filter(struct prefix *p, struct ctl_show_rib_request *req)
 }
 
 static void
-rde_dump_adjout_filter(struct rde_peer *peer, struct adjout_prefix *p,
-      struct ctl_show_rib_request *req)
+rde_dump_adjout_filter(struct rde_peer *peer, struct pt_entry *pte,
+     struct adjout_prefix *p, struct ctl_show_rib_request *req)
 {
 	struct adjout_attr *attrs = p->attrs;
 	struct rde_aspath *asp = attrs->aspath;
@@ -3130,7 +3130,7 @@ rde_dump_adjout_filter(struct rde_peer *peer, struct adjout_prefix *p,
 			return;
 	}
 	/* in the adj-rib-out, skip matching against roa and aspa state */
-	rde_dump_adjout_as(peer, p, attrs, req->pid, req->flags);
+	rde_dump_adjout_as(peer, pte, p, attrs, req->pid, req->flags);
 }
 
 static void
@@ -3146,12 +3146,12 @@ rde_dump_upcall(struct rib_entry *re, void *ptr)
 }
 
 static void
-rde_dump_adjout_upcall(struct rde_peer *peer, struct adjout_prefix *p,
-    void *ptr)
+rde_dump_adjout_upcall(struct rde_peer *peer, struct pt_entry *pte,
+    struct adjout_prefix *p, void *ptr)
 {
 	struct rde_dump_ctx	*ctx = ptr;
 
-	rde_dump_adjout_filter(peer, p, &ctx->req);
+	rde_dump_adjout_filter(peer, pte, p, &ctx->req);
 }
 
 static int
@@ -3288,7 +3288,7 @@ rde_dump_ctx_new(struct ctl_show_rib_request *req, pid_t pid,
 						/* dump all matching paths */
 						while (p != NULL) {
 							rde_dump_adjout_upcall(
-							    peer, p, ctx);
+							    peer, NULL, p, ctx);
 							p = adjout_prefix_next(
 							    peer, p);
 						}
@@ -3303,7 +3303,7 @@ rde_dump_ctx_new(struct ctl_show_rib_request *req, pid_t pid,
 				}
 				/* dump all matching paths */
 				while (p != NULL) {
-					rde_dump_adjout_upcall(peer, p, ctx);
+					rde_dump_adjout_upcall(peer, NULL, p, ctx);
 					p = adjout_prefix_next(peer, p);
 				}
 			} while ((peer = peer_match(&req->neighbor,
@@ -3567,7 +3567,8 @@ rde_evaluate_all(void)
 
 /* flush Adj-RIB-Out by withdrawing all prefixes */
 static void
-rde_up_flush_upcall(struct rde_peer *peer, struct adjout_prefix *p, void *ptr)
+rde_up_flush_upcall(struct rde_peer *peer, struct pt_entry *pte,
+    struct adjout_prefix *p, void *ptr)
 {
 	adjout_prefix_withdraw(peer, p);
 }
