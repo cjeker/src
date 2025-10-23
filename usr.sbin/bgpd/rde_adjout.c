@@ -554,7 +554,6 @@ adjout_prefix_update(struct adjout_prefix *p, struct rde_peer *peer,
 		    attrs->communities) &&
 		    path_equal(&state->aspath, attrs->aspath)) {
 			/* nothing changed */
-			p->flags &= ~PREFIX_ADJOUT_FLAG_STALE;
 			return;
 		}
 
@@ -562,9 +561,6 @@ adjout_prefix_update(struct adjout_prefix *p, struct rde_peer *peer,
 		adjout_prefix_unlink(p, peer);
 		peer->stats.prefix_out_cnt--;
 	}
-
-	/* clear PREFIX_ADJOUT_FLAG_STALE for up_generate_addpath() */
-	p->flags &= ~PREFIX_ADJOUT_FLAG_STALE;
 
 	/* update path_id_tx now that the prefix is unlinked */
 	if (p->path_id_tx != path_id_tx) {
@@ -605,9 +601,6 @@ adjout_prefix_destroy(struct rde_peer *peer, struct adjout_prefix *p)
 		adjout_prefix_unlink(p, peer);
 		peer->stats.prefix_out_cnt--;
 	}
-
-	/* clear PREFIX_ADJOUT_FLAG_STALE just in case */
-	p->flags &= ~PREFIX_ADJOUT_FLAG_STALE;
 
 	if (!prefix_is_locked(p)) {
 		RB_REMOVE(prefix_index, &peer->adj_rib_out, p);
