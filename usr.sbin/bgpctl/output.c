@@ -1069,9 +1069,9 @@ show_rib_mem(struct rde_memstats *stats)
 	printf("%10lld prefix entries using %s of memory\n",
 	    stats->prefix_cnt, fmt_mem(stats->prefix_cnt *
 	    sizeof(struct prefix)));
-	printf("%10lld adjout_prefix entries using %s of memory\n",
+	printf("%10lld adjout_prefix entries using %s out of %s memory\n",
 	    stats->adjout_prefix_cnt, fmt_mem(stats->adjout_prefix_cnt *
-	    sizeof(struct adjout_prefix)));
+	    sizeof(struct adjout_prefix)), fmt_mem(stats->adjout_prefix_size));
 	printf("%10lld adjout attribute entries using %s of memory\n",
 	    stats->adjout_attr_cnt, fmt_mem(stats->adjout_attr_cnt *
 	    sizeof(struct adjout_attr)));

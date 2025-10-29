@@ -294,8 +294,7 @@ ometric_rib_mem(struct rde_memstats *stats)
 	ometric_rib_mem_element("prefix", stats->prefix_cnt,
 	    stats->prefix_cnt * sizeof(struct prefix), UINT64_MAX);
 	ometric_rib_mem_element("adjout_prefix", stats->adjout_prefix_cnt,
-	    stats->adjout_prefix_cnt * sizeof(struct adjout_prefix),
-	    UINT64_MAX);
+	    stats->adjout_prefix_size, UINT64_MAX);
 	ometric_rib_mem_element("pend_attr", stats->pend_attr_cnt,
 	    stats->pend_attr_cnt * sizeof(struct pend_attr), UINT64_MAX);
 	ometric_rib_mem_element("pend_prefix", stats->pend_prefix_cnt,
