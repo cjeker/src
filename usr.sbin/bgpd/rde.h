@@ -78,7 +78,6 @@ struct rib {
  * Currently I assume that we can do that with the neighbor_ip...
  */
 RB_HEAD(peer_tree, rde_peer);
-RB_HEAD(prefix_index, adjout_prefix);
 
 CH_HEAD(pend_prefix_hash, pend_prefix);
 TAILQ_HEAD(pend_prefix_queue, pend_prefix);
@@ -94,7 +93,6 @@ struct rde_peer {
 	struct bgpd_addr		 local_v6_addr;
 	struct capabilities		 capa;
 	struct addpath_eval		 eval;
-	struct prefix_index		 adj_rib_out;
 	struct pend_prefix_hash		 pend_prefixes;
 	struct pend_attr_hash		 pend_attrs;
 	struct pend_attr_queue		 updates[AID_MAX];
@@ -103,6 +101,7 @@ struct rde_peer {
 	struct ibufqueue		*ibufq;
 	struct rib_queue		 rib_pq_head;
 	monotime_t			 staletime[AID_MAX];
+	uint32_t			 adjout_bid;
 	uint32_t			 remote_bgpid;
 	uint32_t			 path_id_tx;
 	unsigned int			 local_if_scope;
@@ -270,14 +269,19 @@ struct nexthop {
 #define NEXTHOP_CONNECTED	0x01
 };
 
+struct adjout_prefix;
+
 /* generic entry without address specific part */
 struct pt_entry {
 	RB_ENTRY(pt_entry)		 pt_e;
+	struct adjout_prefix		*adjout;
+	uint32_t			 adjoutlen;
+	uint32_t			 adjoutavail;
 	uint8_t				 aid;
 	uint8_t				 prefixlen;
 	uint16_t			 len;
 	uint32_t			 refcnt;
-	uint8_t				 data[4]; /* data depending on aid */
+	uint8_t				 data[0]; /* data depending on aid */
 };
 
 struct prefix {
@@ -325,13 +329,10 @@ struct adjout_attr {
 };
 
 struct adjout_prefix {
-	RB_ENTRY(adjout_prefix)		 index;
-	struct pt_entry			*pt;
-	struct adjout_attr		*attrs;
 	uint32_t			 path_id_tx;
-	uint8_t			 	 flags;
+	struct adjout_attr		*attrs;
+	struct bitmap			 peermap;
 };
-#define	PREFIX_ADJOUT_FLAG_LOCKED	0x01	/* locked by rib walker */
 
 struct pend_attr {
 	TAILQ_ENTRY(pend_attr)		 entry;
@@ -363,7 +364,7 @@ enum eval_mode {
 struct rib_context {
 	LIST_ENTRY(rib_context)		 entry;
 	struct rib_entry		*ctx_re;
-	struct adjout_prefix		*ctx_p;
+	struct pt_entry			*ctx_pt;
 	uint32_t			 ctx_id;
 	void		(*ctx_rib_call)(struct rib_entry *, void *);
 	void		(*ctx_prefix_call)(struct rde_peer *,
@@ -432,7 +433,6 @@ void		 peer_blast(struct rde_peer *, uint8_t);
 void		 peer_dump(struct rde_peer *, uint8_t);
 void		 peer_begin_rrefresh(struct rde_peer *, uint8_t);
 int		 peer_work_pending(void);
-void		 peer_reaper(struct rde_peer *);
 
 void		 peer_imsg_push(struct rde_peer *, struct imsg *);
 int		 peer_imsg_pop(struct rde_peer *, struct imsg *);
@@ -567,9 +567,12 @@ void	 pt_getaddr(struct pt_entry *, struct bgpd_addr *);
 int	 pt_getflowspec(struct pt_entry *, uint8_t **);
 struct pt_entry	*pt_fill(struct bgpd_addr *, int);
 struct pt_entry	*pt_get(struct bgpd_addr *, int);
-struct pt_entry *pt_add(struct bgpd_addr *, int);
+struct pt_entry	*pt_get_next(struct bgpd_addr *, int);
+struct pt_entry	*pt_add(struct bgpd_addr *, int);
 struct pt_entry	*pt_get_flow(struct flowspec *);
 struct pt_entry	*pt_add_flow(struct flowspec *);
+struct pt_entry	*pt_first(uint8_t);
+struct pt_entry	*pt_next(struct pt_entry *);
 void	 pt_remove(struct pt_entry *);
 struct pt_entry	*pt_lookup(struct bgpd_addr *);
 int	 pt_prefix_cmp(const struct pt_entry *, const struct pt_entry *);
@@ -749,7 +752,7 @@ struct adjout_prefix	*adjout_prefix_get(struct rde_peer *, uint32_t,
 struct adjout_prefix	*adjout_prefix_first(struct rde_peer *,
 			    struct pt_entry *);
 struct adjout_prefix	*adjout_prefix_next(struct rde_peer *,
-			    struct adjout_prefix *);
+			    struct pt_entry *, struct adjout_prefix *);
 struct adjout_prefix	*adjout_prefix_lookup(struct rde_peer *,
 			    struct bgpd_addr *, int);
 struct adjout_prefix	*adjout_prefix_match(struct rde_peer *,
@@ -758,12 +761,10 @@ struct adjout_prefix	*adjout_prefix_match(struct rde_peer *,
 void		 prefix_add_eor(struct rde_peer *, uint8_t);
 void		 adjout_prefix_update(struct adjout_prefix *, struct rde_peer *,
 		    struct filterstate *, struct pt_entry *, uint32_t);
-void		 adjout_prefix_withdraw(struct rde_peer *,
-		    struct adjout_prefix *);
-void		 adjout_prefix_destroy(struct rde_peer *,
+void		 adjout_prefix_withdraw(struct rde_peer *, struct pt_entry *,
 		    struct adjout_prefix *);
 void		 adjout_prefix_flush_pending(struct rde_peer *);
-int		 adjout_prefix_reaper(struct rde_peer *);
+void		 adjout_prefix_reaper(struct rde_peer *);
 void		 adjout_prefix_dump_cleanup(struct rib_context *);
 void		 adjout_prefix_dump_r(struct rib_context *);
 int		 adjout_prefix_dump_new(struct rde_peer *, uint8_t,
