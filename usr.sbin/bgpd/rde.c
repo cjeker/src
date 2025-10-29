@@ -327,7 +327,6 @@ rde_main(int debug, int verbose)
 		    monotime_to_usec(monotime_sub(io_end, loop_start));
 
 		peer_foreach(rde_dispatch_imsg_peer, NULL);
-		peer_reaper(NULL);
 
 		peer_end = getmonotime();
 		rdemem.rde_event_peer_usec +=
@@ -3280,17 +3279,20 @@ rde_dump_ctx_new(struct ctl_show_rib_request *req, pid_t pid,
 			}
 
 			do {
+				struct pt_entry *pte = NULL;
 				if (req->flags & F_SHORTER) {
 					for (plen = 0; plen <= req->prefixlen;
 					    plen++) {
-						p = adjout_prefix_lookup(peer,
-						    &req->prefix, plen);
+						pte = pt_get(&req->prefix,
+						    plen);
 						/* dump all matching paths */
-						while (p != NULL) {
+						for (p = adjout_prefix_first(
+						    peer, pte);
+						    p != NULL;
+						    p = adjout_prefix_next(
+						    peer, pte, p)) {
 							rde_dump_adjout_upcall(
-							    peer, NULL, p, ctx);
-							p = adjout_prefix_next(
-							    peer, p);
+							    peer, pte, p, ctx);
 						}
 					}
 					p = NULL;
@@ -3303,8 +3305,9 @@ rde_dump_ctx_new(struct ctl_show_rib_request *req, pid_t pid,
 				}
 				/* dump all matching paths */
 				while (p != NULL) {
-					rde_dump_adjout_upcall(peer, NULL, p, ctx);
-					p = adjout_prefix_next(peer, p);
+					rde_dump_adjout_upcall(peer, pte, p,
+					    ctx);
+					p = adjout_prefix_next(peer, pte, p);
 				}
 			} while ((peer = peer_match(&req->neighbor,
 			    peer->conf.id)));
@@ -3570,7 +3573,7 @@ static void
 rde_up_flush_upcall(struct rde_peer *peer, struct pt_entry *pte,
     struct adjout_prefix *p, void *ptr)
 {
-	adjout_prefix_withdraw(peer, p);
+	adjout_prefix_withdraw(peer, pte, p);
 }
 
 int

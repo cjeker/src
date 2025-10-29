@@ -51,6 +51,9 @@ static void		 pt_free(struct pt_entry *);
 
 struct pt_entry4 {
 	RB_ENTRY(pt_entry)		pt_e;
+	struct adjout_prefix		*adjout;
+	uint32_t			adjoutlen;
+	uint32_t			adjoutavail;
 	uint8_t				aid;
 	uint8_t				prefixlen;
 	uint16_t			len;
@@ -60,6 +63,9 @@ struct pt_entry4 {
 
 struct pt_entry6 {
 	RB_ENTRY(pt_entry)		pt_e;
+	struct adjout_prefix		*adjout;
+	uint32_t			adjoutlen;
+	uint32_t			adjoutavail;
 	uint8_t				aid;
 	uint8_t				prefixlen;
 	uint16_t			len;
@@ -69,6 +75,9 @@ struct pt_entry6 {
 
 struct pt_entry_vpn4 {
 	RB_ENTRY(pt_entry)		pt_e;
+	struct adjout_prefix		*adjout;
+	uint32_t			adjoutlen;
+	uint32_t			adjoutavail;
 	uint8_t				aid;
 	uint8_t				prefixlen;
 	uint16_t			len;
@@ -83,6 +92,9 @@ struct pt_entry_vpn4 {
 
 struct pt_entry_vpn6 {
 	RB_ENTRY(pt_entry)		pt_e;
+	struct adjout_prefix		*adjout;
+	uint32_t			adjoutlen;
+	uint32_t			adjoutavail;
 	uint8_t				aid;
 	uint8_t				prefixlen;
 	uint16_t			len;
@@ -97,6 +109,9 @@ struct pt_entry_vpn6 {
 
 struct pt_entry_evpn {
 	RB_ENTRY(pt_entry)		pt_e;
+	struct adjout_prefix		*adjout;
+	uint32_t			adjoutlen;
+	uint32_t			adjoutavail;
 	uint8_t				aid;
 	uint8_t				prefixlen;
 	uint16_t			len;
@@ -117,12 +132,15 @@ struct pt_entry_evpn {
 
 struct pt_entry_flow {
 	RB_ENTRY(pt_entry)		pt_e;
+	struct adjout_prefix		*adjout;
+	uint32_t			adjoutlen;
+	uint32_t			adjoutavail;
 	uint8_t				aid;
 	uint8_t				prefixlen;	/* unused ??? */
 	uint16_t			len;
 	uint32_t			refcnt;
 	uint64_t			rd;
-	uint8_t				flow[1];	/* NLRI */
+	uint8_t				flow[0];	/* NLRI */
 };
 
 #define PT_FLOW_SIZE		(offsetof(struct pt_entry_flow, flow))
@@ -329,6 +347,15 @@ pt_get(struct bgpd_addr *prefix, int prefixlen)
 }
 
 struct pt_entry *
+pt_get_next(struct bgpd_addr *prefix, int prefixlen)
+{
+	struct pt_entry	*pte;
+
+	pte = pt_fill(prefix, prefixlen);
+	return RB_NFIND(pt_tree, &pttable, pte);
+}
+
+struct pt_entry *
 pt_add(struct bgpd_addr *prefix, int prefixlen)
 {
 	struct pt_entry		*p = NULL;
@@ -382,6 +409,25 @@ pt_add_flow(struct flowspec *f)
 		fatalx("pt_add: insert failed");
 
 	return (p);
+}
+
+struct pt_entry *
+pt_first(uint8_t aid)
+{
+	struct pt_entry	*pte;
+	struct bgpd_addr addr = { .aid = aid };
+
+	if (aid == AID_UNSPEC)
+		return RB_MIN(pt_tree, &pttable);
+
+	pte = pt_fill(&addr, 0);
+	return RB_NFIND(pt_tree, &pttable, pte);
+}
+
+struct pt_entry *
+pt_next(struct pt_entry *pte)
+{
+	return RB_NEXT(pt_tree, &pttable, pte);
 }
 
 void

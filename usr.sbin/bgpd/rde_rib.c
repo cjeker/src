@@ -492,7 +492,7 @@ rib_dump_free(struct rib_context *ctx)
 		ctx->ctx_done(ctx->ctx_arg, ctx->ctx_aid);
 	if (ctx->ctx_re)
 		rib_dump_cleanup(ctx);
-	if (ctx->ctx_p)
+	if (ctx->ctx_pt)
 		adjout_prefix_dump_cleanup(ctx);
 	if (ctx == rib_dump_ctx)
 		rib_dump_ctx = LIST_NEXT(ctx, entry);

@@ -164,6 +164,7 @@ up_process_prefix(struct rde_peer *peer, struct prefix *new,
 	struct filterstate state;
 	struct bgpd_addr addr;
 	int excluded = 0;
+	uint32_t path_id_tx = 0;
 
 	/*
 	 * up_test_update() needs to run before the output filters
@@ -194,11 +195,13 @@ up_process_prefix(struct rde_peer *peer, struct prefix *new,
 	}
 
 	/* from here on we know this is an update */
-	if (p == (void *)-1)
+	if (p == (void *)-1) {
+		path_id_tx = new->path_id_tx;
 		p = adjout_prefix_get(peer, new->path_id_tx, new->pt);
+	}
 
 	up_prep_adjout(peer, &state, new->pt->aid);
-	adjout_prefix_update(p, peer, &state, new->pt, new->path_id_tx);
+	adjout_prefix_update(p, peer, &state, new->pt, path_id_tx);
 	rde_filterstate_clean(&state);
 
 	/* max prefix checker outbound */
@@ -244,7 +247,7 @@ up_generate_updates(struct rde_peer *peer, struct rib_entry *re)
 done:
 	/* withdraw prefix */
 	if (p != NULL)
-		adjout_prefix_withdraw(peer, p);
+		adjout_prefix_withdraw(peer, re->prefix, p);
 }
 
 uint32_t	addpath_prefix_list[4096];	/* XXX */
@@ -267,7 +270,7 @@ up_generate_addpath(struct rde_peer *peer, struct rib_entry *re)
 
 	/* collect all current paths */
 	head = adjout_prefix_first(peer, re->prefix);
-	for (p = head; p != NULL; p = adjout_prefix_next(peer, p)) {
+	for (p = head; p != NULL; p = adjout_prefix_next(peer, re->prefix, p)) {
 		addpath_prefix_list[pidx++] = p->path_id_tx;
 		if (pidx >= nitems(addpath_prefix_list))
 			fatalx("too many addpath paths to select from");
@@ -346,7 +349,7 @@ up_generate_addpath(struct rde_peer *peer, struct rib_entry *re)
 			p = adjout_prefix_get(peer, addpath_prefix_list[i],
 			    re->prefix);
 			if (p != NULL)
-				adjout_prefix_withdraw(peer, p);
+				adjout_prefix_withdraw(peer, re->prefix, p);
 		}
 	}
 }
@@ -396,7 +399,7 @@ up_generate_addpath_all(struct rde_peer *peer, struct rib_entry *re,
 		/* withdraw old path */
 		p = adjout_prefix_get(peer, old_pathid_tx, re->prefix);
 		if (p != NULL)
-			adjout_prefix_withdraw(peer, p);
+			adjout_prefix_withdraw(peer, re->prefix, p);
 	}
 }
 
