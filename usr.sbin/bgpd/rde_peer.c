@@ -222,12 +222,7 @@ peer_apply_out_filter(struct rde_peer *peer, struct filter_head *rules)
 	TAILQ_FOREACH(fr, rules, entry) {
 		if (rde_filter_skip_rule(peer, fr))
 			continue;
-
-		if ((new = malloc(sizeof(*new))) == NULL)
-			fatal(NULL);
-		memcpy(new, fr, sizeof(*new));
-		filterset_copy(&fr->set, &new->set);
-
+		new = rde_filter_copy(fr);
 		TAILQ_INSERT_TAIL(peer->out_rules, new, entry);
 	}
 

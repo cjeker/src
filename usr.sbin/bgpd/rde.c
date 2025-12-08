@@ -71,7 +71,6 @@ void		 rde_dump_ctx_throttle(pid_t, int);
 void		 rde_dump_ctx_terminate(pid_t);
 void		 rde_dump_mrt_new(struct mrt *, pid_t, int);
 
-int		 rde_l3vpn_import(struct rde_community *, struct l3vpn *);
 static void	 rde_commit_pftable(void);
 void		 rde_reload_done(void);
 static void	 rde_softreconfig_in_done(void *, uint8_t);
@@ -102,7 +101,7 @@ static void	 network_dump_upcall(struct rib_entry *, void *);
 static void	 network_flush_upcall(struct rib_entry *, void *);
 
 void		 flowspec_add(struct flowspec *, struct filterstate *,
-		    struct filter_set_head *);
+		    struct rde_filter_set *);
 void		 flowspec_delete(struct flowspec *);
 static void	 flowspec_flush_upcall(struct rib_entry *, void *);
 static void	 flowspec_dump_upcall(struct rib_entry *, void *);
@@ -401,8 +400,8 @@ rde_main(int debug, int verbose)
 
 struct network_config	netconf_s, netconf_p;
 struct filterstate	netconf_state;
-struct filter_set_head	session_set = TAILQ_HEAD_INITIALIZER(session_set);
-struct filter_set_head	parent_set = TAILQ_HEAD_INITIALIZER(parent_set);
+struct rde_filter_set	*session_set;
+struct rde_filter_set	*parent_set;
 
 void
 rde_dispatch_imsg_session(struct imsgbuf *imsgbuf)
@@ -567,7 +566,8 @@ rde_dispatch_imsg_session(struct imsgbuf *imsgbuf)
 			}
 			break;
 		case IMSG_NETWORK_DONE:
-			TAILQ_CONCAT(&netconf_s.attrset, &session_set, entry);
+			netconf_s.rde_attrset = session_set;
+			session_set = NULL;
 			switch (netconf_s.prefix.aid) {
 			case AID_INET:
 				if (netconf_s.prefixlen > 32)
@@ -662,10 +662,11 @@ badnetdel:
 				    "from bgpctl");
 			else
 				flowspec_add(curflow, &netconf_state,
-				    &session_set);
+				    session_set);
 
 			rde_filterstate_clean(&netconf_state);
-			filterset_free(&session_set);
+			rde_filterset_free(session_set);
+			session_set = NULL;
 			free(curflow);
 			curflow = NULL;
 			break;
@@ -706,7 +707,7 @@ badnetdel:
 			    flowspec_flush_upcall, NULL);
 			break;
 		case IMSG_FILTER_SET:
-			filterset_recv(&imsg, &session_set);
+			session_set = imsg_recv_filterset(&imsg);
 			break;
 		case IMSG_CTL_SHOW_NETWORK:
 		case IMSG_CTL_SHOW_RIB:
@@ -924,7 +925,8 @@ rde_dispatch_imsg_parent(struct imsgbuf *imsgbuf)
 			TAILQ_INIT(&netconf_p.attrset);
 			break;
 		case IMSG_NETWORK_DONE:
-			TAILQ_CONCAT(&netconf_p.attrset, &parent_set, entry);
+			netconf_p.rde_attrset = parent_set;
+			parent_set = NULL;
 
 			rde_filterstate_init(&state);
 			asp = &state.aspath;
@@ -986,10 +988,11 @@ rde_dispatch_imsg_parent(struct imsgbuf *imsgbuf)
 				log_warnx("invalid flowspec update received "
 				    "from parent");
 			else
-				flowspec_add(curflow, &state, &parent_set);
+				flowspec_add(curflow, &state, parent_set);
 
 			rde_filterstate_clean(&state);
-			filterset_free(&parent_set);
+			rde_filterset_free(parent_set);
+			parent_set = NULL;
 			free(curflow);
 			curflow = NULL;
 			break;
@@ -1094,11 +1097,12 @@ rde_dispatch_imsg_parent(struct imsgbuf *imsgbuf)
 				}
 			}
 			TAILQ_INIT(&r->set);
-			TAILQ_CONCAT(&r->set, &parent_set, entry);
+			r->rde_set = parent_set;
+			parent_set = NULL;
 			if ((rib = rib_byid(rib_find(r->rib))) == NULL) {
 				log_warnx("IMSG_RECONF_FILTER: filter rule "
 				    "for nonexistent rib %s", r->rib);
-				filterset_free(&r->set);
+				rde_filterset_free(r->rde_set);
 				free(r);
 				break;
 			}
@@ -1196,7 +1200,8 @@ rde_dispatch_imsg_parent(struct imsgbuf *imsgbuf)
 				    "IMSG_RECONF_VPN_EXPORT unexpected");
 				break;
 			}
-			TAILQ_CONCAT(&vpn->export, &parent_set, entry);
+			vpn->rde_export = parent_set;
+			parent_set = NULL;
 			break;
 		case IMSG_RECONF_VPN_IMPORT:
 			if (vpn == NULL) {
@@ -1204,7 +1209,8 @@ rde_dispatch_imsg_parent(struct imsgbuf *imsgbuf)
 				    "IMSG_RECONF_VPN_IMPORT unexpected");
 				break;
 			}
-			TAILQ_CONCAT(&vpn->import, &parent_set, entry);
+			vpn->rde_import = parent_set;
+			parent_set = NULL;
 			break;
 		case IMSG_RECONF_VPN_DONE:
 			break;
@@ -1225,7 +1231,7 @@ rde_dispatch_imsg_parent(struct imsgbuf *imsgbuf)
 			nexthop_update(&knext);
 			break;
 		case IMSG_FILTER_SET:
-			filterset_recv(&imsg, &parent_set);
+			parent_set = imsg_recv_filterset(&imsg);
 			break;
 		case IMSG_MRT_OPEN:
 		case IMSG_MRT_REOPEN:
@@ -3449,18 +3455,6 @@ rde_dump_mrt_new(struct mrt *mrt, pid_t pid, int fd)
 /*
  * kroute specific functions
  */
-int
-rde_l3vpn_import(struct rde_community *comm, struct l3vpn *rd)
-{
-	struct filter_set	*s;
-
-	TAILQ_FOREACH(s, &rd->import, entry) {
-		if (community_match(comm, &s->action.community, 0))
-			return (1);
-	}
-	return (0);
-}
-
 void
 rde_send_kroute_flush(struct rib *rib)
 {
@@ -4563,7 +4557,7 @@ void
 network_add(struct network_config *nc, struct filterstate *state)
 {
 	struct l3vpn		*vpn;
-	struct filter_set_head	*vpnset = NULL;
+	struct rde_filter_set	*vpnset = NULL;
 	struct in_addr		 prefix4;
 	struct in6_addr		 prefix6;
 	uint32_t		 path_id_tx;
@@ -4589,7 +4583,7 @@ network_add(struct network_config *nc, struct filterstate *state)
 				nc->prefix.labelstack[2] =
 				    (vpn->label << 4) & 0xf0;
 				nc->prefix.labelstack[2] |= BGP_MPLS_BOS;
-				vpnset = &vpn->export;
+				vpnset = vpn->rde_export;
 				break;
 			case AID_INET6:
 				prefix6 = nc->prefix.v6;
@@ -4605,11 +4599,11 @@ network_add(struct network_config *nc, struct filterstate *state)
 				nc->prefix.labelstack[2] =
 				    (vpn->label << 4) & 0xf0;
 				nc->prefix.labelstack[2] |= BGP_MPLS_BOS;
-				vpnset = &vpn->export;
+				vpnset = vpn->rde_export;
 				break;
 			default:
 				log_warnx("unable to VPNize prefix");
-				filterset_free(&nc->attrset);
+				rde_filterset_free(nc->rde_attrset);
 				return;
 			}
 			break;
@@ -4623,7 +4617,8 @@ network_add(struct network_config *nc, struct filterstate *state)
 		}
 	}
 
-	rde_apply_set(&nc->attrset, peerself, peerself, state, nc->prefix.aid);
+	rde_apply_set(nc->rde_attrset, peerself, peerself, state,
+	    nc->prefix.aid);
 	if (vpnset)
 		rde_apply_set(vpnset, peerself, peerself, state,
 		    nc->prefix.aid);
@@ -4646,7 +4641,7 @@ network_add(struct network_config *nc, struct filterstate *state)
 		prefix_update(rib, peerself, 0, path_id_tx, state, 0,
 		    &nc->prefix, nc->prefixlen);
 	}
-	filterset_free(&nc->attrset);
+	rde_filterset_free(nc->rde_attrset);
 }
 
 void
@@ -4779,7 +4774,7 @@ network_flush_upcall(struct rib_entry *re, void *ptr)
  */
 void
 flowspec_add(struct flowspec *f, struct filterstate *state,
-    struct filter_set_head *attrset)
+    struct rde_filter_set *attrset)
 {
 	struct pt_entry *pte;
 	uint32_t path_id_tx;

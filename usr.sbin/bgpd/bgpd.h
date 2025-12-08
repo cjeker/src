@@ -252,6 +252,7 @@ TAILQ_HEAD(timer_head, timer);
 
 TAILQ_HEAD(listen_addrs, listen_addr);
 TAILQ_HEAD(filter_set_head, filter_set);
+struct rde_filter_set;
 
 struct bitmap {
 	uint64_t	data[2];
@@ -566,6 +567,7 @@ enum network_type {
 struct network_config {
 	struct bgpd_addr	 prefix;
 	struct filter_set_head	 attrset;
+	struct rde_filter_set	*rde_attrset;
 	char			 psname[SET_NAME_LEN];
 	uint64_t		 rd;
 	enum network_type	 type;
@@ -591,6 +593,7 @@ struct flowspec {
 struct flowspec_config {
 	RB_ENTRY(flowspec_config)	 entry;
 	struct filter_set_head		 attrset;
+	struct rde_filter_set		*rde_attrset;
 	struct flowspec			*flow;
 	enum reconf_action		 reconf_action;
 };
@@ -1265,6 +1268,7 @@ struct filter_rule {
 	struct filter_peers		peer;
 	struct filter_match		match;
 	struct filter_set_head		set;
+	struct rde_filter_set		*rde_set;
 #define RDE_FILTER_SKIP_PEERID		0
 #define RDE_FILTER_SKIP_GROUPID		1
 #define RDE_FILTER_SKIP_REMOTE_AS	2
@@ -1363,6 +1367,8 @@ struct l3vpn {
 	char				ifmpe[IFNAMSIZ];
 	struct filter_set_head		import;
 	struct filter_set_head		export;
+	struct rde_filter_set		*rde_import;
+	struct rde_filter_set		*rde_export;
 	struct network_head		net_l;
 	uint64_t			rd;
 	u_int				rtableid;
@@ -1581,12 +1587,11 @@ int	pftable_commit(void);
 
 /* rde_filter.c */
 void	filterset_free(struct filter_set_head *);
+void	rde_filterset_free(struct rde_filter_set *);
 int	filterset_cmp(struct filter_set *, struct filter_set *);
 void	filterset_move(struct filter_set_head *, struct filter_set_head *);
 void	filterset_copy(struct filter_set_head *, struct filter_set_head *);
 const char	*filterset_name(enum action_types);
-int	filterset_send(struct imsgbuf *, struct filter_set_head *);
-void	filterset_recv(struct imsg *, struct filter_set_head *);
 
 /* bitmap.c */
 int		 bitmap_set(struct bitmap *, uint32_t);
@@ -1679,6 +1684,11 @@ const char	*get_baudrate(unsigned long long, char *);
 unsigned int	 bin_of_attrs(unsigned int);
 unsigned int	 bin_of_communities(unsigned int);
 unsigned int	 bin_of_adjout_prefixes(unsigned int);
+
+/* bgpd_imsg.c */
+struct rde_filter_set;
+int	imsg_send_filterset(struct imsgbuf *, struct filter_set_head *);
+struct rde_filter_set	*imsg_recv_filterset(struct imsg *);
 
 /* flowspec.c */
 int	flowspec_valid(const uint8_t *, int, int);
