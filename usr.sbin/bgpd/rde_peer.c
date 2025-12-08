@@ -650,10 +650,7 @@ peer_dump_upcall(struct rib_entry *re, void *ptr)
 static void
 peer_dump_done(void *ptr, uint8_t aid)
 {
-	struct rde_peer		*peer = ptr;
-
-	/* Adj-RIB-Out is ready, blast it out */
-	peer_blast(peer, aid);
+	peer_blast_done(ptr, aid);
 }
 
 /*
