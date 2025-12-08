@@ -263,7 +263,7 @@ void
 up_generate_addpath(struct rde_peer *peer, struct rib_entry *re)
 {
 	struct prefix		*new;
-	struct adjout_prefix	*head, *p, *np;
+	struct adjout_prefix	*head, *p;
 	int			maxpaths = 0, extrapaths = 0, extra;
 	int			checkmode = 1;
 	unsigned int		pidx = 0, i;

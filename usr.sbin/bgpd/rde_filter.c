@@ -21,27 +21,57 @@
 #include <sys/types.h>
 #include <sys/queue.h>
 
+#include <errno.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <siphash.h>
 
 #include "bgpd.h"
 #include "rde.h"
 #include "log.h"
+#include "chash.h"
 
-int	filterset_equal(struct filter_set_head *, struct filter_set_head *);
+static int	rde_filterset_equal(const struct rde_filter_set *,
+	    const struct rde_filter_set *);
+static void	rde_filterset_ref(struct rde_filter_set *);
+static void	rde_filterset_unref(struct rde_filter_set *);
+
+struct rde_filter_set_elm {
+	enum action_types	type;
+	union {
+		uint8_t				 prepend;
+		uint8_t				 origin;
+		uint16_t			 id;
+		uint32_t			 metric;
+		int32_t				 relative;
+		struct nexthop			*nh_ref;
+		struct community		 community;
+	}			action;
+};
+
+struct rde_filter_set {
+	uint64_t			hash;
+	size_t				len;
+	int				refcnt;
+	struct rde_filter_set_elm	set[0];
+};
 
 void
-rde_apply_set(struct filter_set_head *sh, struct rde_peer *peer,
+rde_apply_set(const struct rde_filter_set *rfs, struct rde_peer *peer,
     struct rde_peer *from, struct filterstate *state, uint8_t aid)
 {
-	struct filter_set	*set;
 	u_char			*np;
+	size_t			 i;
 	uint32_t		 prep_as;
 	uint16_t		 nl;
 	uint8_t			 prepend;
 
-	TAILQ_FOREACH(set, sh, entry) {
+	if (rfs == NULL)
+		return;
+	for (i = 0; i < rfs->len; i++) {
+		const struct rde_filter_set_elm *set = &rfs->set[i];
+
 		switch (set->type) {
 		case ACTION_SET_LOCALPREF:
 			state->aspath.lpref = set->action.metric;
@@ -167,6 +197,22 @@ rde_apply_set(struct filter_set_head *sh, struct rde_peer *peer,
 			fatalx("unexpected filter action in RDE");
 		}
 	}
+}
+
+/* use to match the import filters for vpn imports */
+int
+rde_l3vpn_import(struct rde_community *comm, struct l3vpn *rd)
+{
+	size_t i;
+
+	if (rd->rde_import == NULL)
+		return (0);
+	for (i = 0; i < rd->rde_import->len; i++) {
+		struct rde_filter_set_elm *s = &rd->rde_import->set[i];
+		if (community_match(comm, &s->action.community, 0))
+			return (1);
+	}
+	return (0);
 }
 
 /* return 1 when prefix matches filter_prefix, 0 if not */
@@ -402,13 +448,26 @@ rde_filter_equal(struct filter_head *a, struct filter_head *b)
 			return (0);
 		}
 
-		if (!filterset_equal(&fa->set, &fb->set))
+		if (!rde_filterset_equal(fa->rde_set, fb->rde_set))
 			return (0);
 
 		fa = TAILQ_NEXT(fa, entry);
 		fb = TAILQ_NEXT(fb, entry);
 	}
 	return (1);
+}
+
+struct filter_rule *
+rde_filter_copy(const struct filter_rule *fr)
+{
+	struct filter_rule *new;
+
+	if ((new = malloc(sizeof(*new))) == NULL)
+		fatal(NULL);
+	*new = *fr;
+	/* XXX think about skip table */
+	rde_filterset_ref(new->rde_set);
+	return new;
 }
 
 void
@@ -487,6 +546,7 @@ filterlist_free(struct filter_head *fh)
 	while ((r = TAILQ_FIRST(fh)) != NULL) {
 		TAILQ_REMOVE(fh, r, entry);
 		filterset_free(&r->set);
+		rde_filterset_unref(r->rde_set);
 		free(r);
 	}
 	free(fh);
@@ -511,6 +571,49 @@ filterset_free(struct filter_set_head *sh)
 			nexthop_unref(s->action.nh_ref);
 		free(s);
 	}
+}
+
+const char *
+filterset_name(enum action_types type)
+{
+	switch (type) {
+	case ACTION_SET_LOCALPREF:
+	case ACTION_SET_RELATIVE_LOCALPREF:
+		return ("localpref");
+	case ACTION_SET_MED:
+	case ACTION_SET_RELATIVE_MED:
+		return ("metric");
+	case ACTION_SET_WEIGHT:
+	case ACTION_SET_RELATIVE_WEIGHT:
+		return ("weight");
+	case ACTION_SET_PREPEND_SELF:
+		return ("prepend-self");
+	case ACTION_SET_PREPEND_PEER:
+		return ("prepend-peer");
+	case ACTION_SET_AS_OVERRIDE:
+		return ("as-override");
+	case ACTION_SET_NEXTHOP:
+	case ACTION_SET_NEXTHOP_REF:
+	case ACTION_SET_NEXTHOP_REJECT:
+	case ACTION_SET_NEXTHOP_BLACKHOLE:
+	case ACTION_SET_NEXTHOP_NOMODIFY:
+	case ACTION_SET_NEXTHOP_SELF:
+		return ("nexthop");
+	case ACTION_SET_COMMUNITY:
+		return ("community");
+	case ACTION_DEL_COMMUNITY:
+		return ("community delete");
+	case ACTION_PFTABLE:
+	case ACTION_PFTABLE_ID:
+		return ("pftable");
+	case ACTION_RTLABEL:
+	case ACTION_RTLABEL_ID:
+		return ("rtlabel");
+	case ACTION_SET_ORIGIN:
+		return ("origin");
+	}
+
+	fatalx("filterset_name: got lost");
 }
 
 /*
@@ -586,199 +689,258 @@ filterset_copy(struct filter_set_head *source, struct filter_set_head *dest)
 }
 
 int
-filterset_equal(struct filter_set_head *ah, struct filter_set_head *bh)
+rde_filterset_equal(const struct rde_filter_set *afs,
+    const struct rde_filter_set *bfs)
 {
-	struct filter_set	*a, *b;
-	const char		*as, *bs;
+	const struct rde_filter_set_elm *a, *b;
+	size_t i;
 
-	for (a = TAILQ_FIRST(ah), b = TAILQ_FIRST(bh);
-	    a != NULL && b != NULL;
-	    a = TAILQ_NEXT(a, entry), b = TAILQ_NEXT(b, entry)) {
+	if (afs == NULL && bfs == NULL)
+		return 1;
+	if (afs == NULL || bfs == NULL)
+		return 0;
+	if (afs->len != bfs->len)
+		return 0;
+
+	a = afs->set;
+	b = bfs->set;
+	for (i = 0; i < afs->len; i++, a++, b++) {
+		if (a->type != b->type)
+			return 0;
+
 		switch (a->type) {
 		case ACTION_SET_PREPEND_SELF:
 		case ACTION_SET_PREPEND_PEER:
-			if (a->type == b->type &&
-			    a->action.prepend == b->action.prepend)
+			if (a->action.prepend == b->action.prepend)
 				continue;
 			break;
 		case ACTION_SET_AS_OVERRIDE:
-			if (a->type == b->type)
-				continue;
-			break;
+			continue;
 		case ACTION_SET_LOCALPREF:
 		case ACTION_SET_MED:
 		case ACTION_SET_WEIGHT:
-			if (a->type == b->type &&
-			    a->action.metric == b->action.metric)
+			if (a->action.metric == b->action.metric)
 				continue;
 			break;
 		case ACTION_SET_RELATIVE_LOCALPREF:
 		case ACTION_SET_RELATIVE_MED:
 		case ACTION_SET_RELATIVE_WEIGHT:
-			if (a->type == b->type &&
-			    a->action.relative == b->action.relative)
-				continue;
-			break;
-		case ACTION_SET_NEXTHOP:
-			if (a->type == b->type &&
-			    memcmp(&a->action.nexthop, &b->action.nexthop,
-			    sizeof(a->action.nexthop)) == 0)
+			if (a->action.relative == b->action.relative)
 				continue;
 			break;
 		case ACTION_SET_NEXTHOP_REF:
-			if (a->type == b->type &&
-			    a->action.nh_ref == b->action.nh_ref)
+			if (a->action.nh_ref == b->action.nh_ref)
 				continue;
 			break;
 		case ACTION_SET_NEXTHOP_BLACKHOLE:
 		case ACTION_SET_NEXTHOP_REJECT:
 		case ACTION_SET_NEXTHOP_NOMODIFY:
 		case ACTION_SET_NEXTHOP_SELF:
-			if (a->type == b->type)
-				continue;
-			break;
+			continue;
 		case ACTION_DEL_COMMUNITY:
 		case ACTION_SET_COMMUNITY:
-			if (a->type == b->type &&
-			    memcmp(&a->action.community, &b->action.community,
+			if (memcmp(&a->action.community, &b->action.community,
 			    sizeof(a->action.community)) == 0)
 				continue;
 			break;
-		case ACTION_PFTABLE:
-		case ACTION_PFTABLE_ID:
-			if (b->type == ACTION_PFTABLE)
-				bs = b->action.pftable;
-			else if (b->type == ACTION_PFTABLE_ID)
-				bs = pftable_id2name(b->action.id);
-			else
-				break;
-
-			if (a->type == ACTION_PFTABLE)
-				as = a->action.pftable;
-			else
-				as = pftable_id2name(a->action.id);
-
-			if (strcmp(as, bs) == 0)
-				continue;
-			break;
-		case ACTION_RTLABEL:
 		case ACTION_RTLABEL_ID:
-			if (b->type == ACTION_RTLABEL)
-				bs = b->action.rtlabel;
-			else if (b->type == ACTION_RTLABEL_ID)
-				bs = rtlabel_id2name(b->action.id);
-			else
-				break;
-
-			if (a->type == ACTION_RTLABEL)
-				as = a->action.rtlabel;
-			else
-				as = rtlabel_id2name(a->action.id);
-
-			if (strcmp(as, bs) == 0)
+		case ACTION_PFTABLE_ID:
+			if (a->action.id == b->action.id)
 				continue;
 			break;
 		case ACTION_SET_ORIGIN:
-			if (a->type == b->type &&
-			    a->action.origin == b->action.origin)
+			if (a->action.origin == b->action.origin)
 				continue;
 			break;
+		case ACTION_SET_NEXTHOP:
+		case ACTION_RTLABEL:
+		case ACTION_PFTABLE:
+			fatalx("unexpected filter action in RDE");
 		}
 		/* compare failed */
-		return (0);
+		return 0;
 	}
-	if (a != NULL || b != NULL)
-		return (0);
-	return (1);
+	return 1;
 }
 
-const char *
-filterset_name(enum action_types type)
-{
-	switch (type) {
-	case ACTION_SET_LOCALPREF:
-	case ACTION_SET_RELATIVE_LOCALPREF:
-		return ("localpref");
-	case ACTION_SET_MED:
-	case ACTION_SET_RELATIVE_MED:
-		return ("metric");
-	case ACTION_SET_WEIGHT:
-	case ACTION_SET_RELATIVE_WEIGHT:
-		return ("weight");
-	case ACTION_SET_PREPEND_SELF:
-		return ("prepend-self");
-	case ACTION_SET_PREPEND_PEER:
-		return ("prepend-peer");
-	case ACTION_SET_AS_OVERRIDE:
-		return ("as-override");
-	case ACTION_SET_NEXTHOP:
-	case ACTION_SET_NEXTHOP_REF:
-	case ACTION_SET_NEXTHOP_REJECT:
-	case ACTION_SET_NEXTHOP_BLACKHOLE:
-	case ACTION_SET_NEXTHOP_NOMODIFY:
-	case ACTION_SET_NEXTHOP_SELF:
-		return ("nexthop");
-	case ACTION_SET_COMMUNITY:
-		return ("community");
-	case ACTION_DEL_COMMUNITY:
-		return ("community delete");
-	case ACTION_PFTABLE:
-	case ACTION_PFTABLE_ID:
-		return ("pftable");
-	case ACTION_RTLABEL:
-	case ACTION_RTLABEL_ID:
-		return ("rtlabel");
-	case ACTION_SET_ORIGIN:
-		return ("origin");
-	}
+static SIPHASH_KEY	fskey;
 
-	fatalx("filterset_name: got lost");
+static inline uint64_t
+rde_filterset_hash(const struct rde_filter_set *rfs)
+{
+        return rfs->hash;
 }
 
-int
-filterset_send(struct imsgbuf *imsgbuf, struct filter_set_head *set)
+static uint64_t
+rde_filterset_calc_hash(const struct rde_filter_set *rfs)
 {
-	struct filter_set	*s;
+	return SipHash24(&fskey, rfs->set, rfs->len * sizeof(*rfs->set));
+}
 
-	TAILQ_FOREACH(s, set, entry)
-		if (imsg_compose(imsgbuf, IMSG_FILTER_SET, 0, 0, -1, s,
-		    sizeof(*s)) == -1)
-			return (-1);
-	return (0);
+CH_HEAD(rde_filterset, rde_filter_set);
+CH_PROTOTYPE(rde_filterset, rde_filter_set, rde_filterset_hash);
+
+static struct rde_filterset filterset = CH_INITIALIZER(&filterset);
+
+void
+rde_filterset_ref(struct rde_filter_set *rfs)
+{
+	if (rfs == NULL)
+		return;
+	rfs->refcnt++;
+	/* rdemem.filter_set_refs++; */
 }
 
 void
-filterset_recv(struct imsg *imsg, struct filter_set_head *set)
+rde_filterset_unref(struct rde_filter_set *rfs)
 {
-	struct filter_set	*s;
-
-	if ((s = malloc(sizeof(*s))) == NULL)
-		fatal(NULL);
-	if (imsg_get_data(imsg, s, sizeof(*s)) == -1) {
-		log_warnx("rde_dispatch: wrong imsg len");
-		free(s);
+	if (rfs == NULL)
 		return;
+	rfs->refcnt--;
+	/* rdemem.filter_set_refs--; */
+	if (rfs->refcnt <= 0) {
+		CH_REMOVE(rde_filterset, &filterset, rfs);
+		rde_filterset_free(rfs);
 	}
-	switch (s->type) {
-	case ACTION_SET_NEXTHOP:
-		s->action.nh_ref = nexthop_get(&s->action.nexthop);
-		s->type = ACTION_SET_NEXTHOP_REF;
-		break;
-	case ACTION_RTLABEL:
-		/* convert the route label to an id for faster access */
-		s->action.id = rtlabel_name2id(s->action.rtlabel);
-		s->type = ACTION_RTLABEL_ID;
-		break;
-	case ACTION_PFTABLE:
-		/* convert pftable name to an id */
-		s->action.id = pftable_name2id(s->action.pftable);
-		s->type = ACTION_PFTABLE_ID;
-		break;
-	default:
-		break;
-	}
-	TAILQ_INSERT_TAIL(set, s, entry);
 }
+
+void
+rde_filterset_free(struct rde_filter_set *rfs)
+{
+	struct rde_filter_set_elm *s;
+	size_t i;
+
+	if (rfs == NULL)
+		return;
+
+	s = rfs->set;
+	for (i = 0; i < rfs->len; i++, s++) {
+		if (s->type == ACTION_RTLABEL_ID)
+			rtlabel_unref(s->action.id);
+		else if (s->type == ACTION_PFTABLE_ID)
+			pftable_unref(s->action.id);
+		else if (s->type == ACTION_SET_NEXTHOP_REF)
+			nexthop_unref(s->action.nh_ref);
+	}
+	free(rfs);
+}
+
+struct rde_filter_set *
+imsg_recv_filterset(struct imsg *imsg)
+{
+	struct ibuf ibuf;
+	struct rde_filter_set *rfs;
+	struct rde_filter_set_elm *set;
+	struct bgpd_addr nexthop;
+	char pftable[PFTABLE_LEN];
+	char rtlabel[ROUTELABEL_LEN];
+	uint16_t nsets, i;
+
+	if (imsg_get_ibuf(imsg, &ibuf) == -1) {
+		log_warn("filter set recv");
+		return NULL;
+	}
+
+
+	if (ibuf_get_n16(&ibuf, &nsets) == -1) {
+		log_warn("filter set recv");
+		return NULL;
+	}
+
+	if (nsets == 0)
+		return NULL;
+
+	if ((rfs = calloc(1, sizeof(*rfs) + nsets * sizeof(*set))) == NULL)
+		fatal(NULL);
+
+	rfs->len = nsets;
+	set = rfs->set;
+
+	for (i = 0; i < nsets; i++, set++) {
+		uint32_t type;
+
+		if (ibuf_get_n32(&ibuf, &type) == -1)
+			goto fail;
+		set->type = type;
+
+		switch (set->type) {
+		case ACTION_SET_PREPEND_SELF:
+		case ACTION_SET_PREPEND_PEER:
+			if (ibuf_get_n8(&ibuf, &set->action.prepend) == -1)
+				goto fail;
+			break;
+		case ACTION_SET_AS_OVERRIDE:
+			break;
+		case ACTION_SET_LOCALPREF:
+		case ACTION_SET_MED:
+		case ACTION_SET_WEIGHT:
+			if (ibuf_get_n32(&ibuf, &set->action.metric) == -1)
+				goto fail;
+			break;
+		case ACTION_SET_RELATIVE_LOCALPREF:
+		case ACTION_SET_RELATIVE_MED:
+		case ACTION_SET_RELATIVE_WEIGHT:
+			if (ibuf_get_n32(&ibuf, &set->action.relative) == -1)
+				goto fail;
+			break;
+		case ACTION_SET_NEXTHOP:
+			if (ibuf_get(&ibuf, &nexthop, sizeof(nexthop)) == -1)
+				goto fail;
+			set->action.nh_ref = nexthop_get(&nexthop);
+			set->type = ACTION_SET_NEXTHOP_REF;
+			break;
+		case ACTION_SET_NEXTHOP_BLACKHOLE:
+		case ACTION_SET_NEXTHOP_REJECT:
+		case ACTION_SET_NEXTHOP_NOMODIFY:
+		case ACTION_SET_NEXTHOP_SELF:
+			break;
+		case ACTION_DEL_COMMUNITY:
+		case ACTION_SET_COMMUNITY:
+			if (ibuf_get(&ibuf, &set->action.community,
+			    sizeof(set->action.community)) == -1)
+				goto fail;
+			break;
+		case ACTION_PFTABLE:
+			if (ibuf_get_strbuf(&ibuf, pftable,
+			    sizeof(pftable)) == -1)
+				goto fail;
+			set->action.id = pftable_name2id(pftable);
+			set->type = ACTION_PFTABLE_ID;
+			break;
+		case ACTION_RTLABEL:
+			if (ibuf_get_strbuf(&ibuf, rtlabel,
+			    sizeof(rtlabel)) == -1)
+				goto fail;
+			set->action.id = rtlabel_name2id(rtlabel);
+			set->type = ACTION_RTLABEL_ID;
+			break;
+		case ACTION_SET_ORIGIN:
+			if (ibuf_get_n8(&ibuf, &set->action.origin) == -1)
+				goto fail;
+			break;
+		case ACTION_SET_NEXTHOP_REF:
+		case ACTION_RTLABEL_ID:
+		case ACTION_PFTABLE_ID:
+			fatalx("unexpected filter action in RDE");
+		}
+	}
+
+	if (ibuf_size(&ibuf) != 0) {
+		errno = EBADMSG;
+		goto fail;
+	}
+
+	rfs->hash = rde_filterset_calc_hash(rfs);
+ 	return rfs;
+
+ fail:
+	log_warn("filter set recv");
+	rde_filterset_free(rfs);
+	return NULL;
+}
+
+CH_GENERATE(rde_filterset, rde_filter_set, rde_filterset_equal,
+   rde_filterset_hash);
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -896,7 +1058,8 @@ rde_filter(struct filter_head *rules, struct rde_peer *peer,
 		     f->skip[RDE_FILTER_SKIP_REMOTE_AS]);
 
 		if (rde_filter_match(f, peer, from, state, prefix, plen)) {
-			rde_apply_set(&f->set, peer, from, state, prefix->aid);
+			rde_apply_set(f->rde_set, peer, from, state,
+			    prefix->aid);
 			if (f->action != ACTION_NONE)
 				action = f->action;
 			if (f->quick)

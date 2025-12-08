@@ -5,7 +5,7 @@
 PROG=	bgpctl
 SRCS=	bgpctl.c output.c output_json.c output_ometric.c parser.c \
 	mrtparser.c json.c ometric.c
-SRCS+=	util.c flowspec.c monotime.c
+SRCS+=	util.c flowspec.c monotime.c bgpd_imsg.c
 CFLAGS+= -Wall
 CFLAGS+= -Wstrict-prototypes -Wmissing-prototypes
 CFLAGS+= -Wmissing-declarations
