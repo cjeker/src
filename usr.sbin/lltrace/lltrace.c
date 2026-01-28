@@ -34,7 +34,7 @@
 
 #include <event.h>
 
-#include "/sys/sys/lltrace.h"
+#include "../../sys/sys/lltrace.h"
 
 #ifndef nitems
 #define nitems(_a)	(sizeof((_a)) / sizeof((_a)[0]))
