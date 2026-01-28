@@ -383,6 +383,8 @@ mtx_enter_try(struct mutex *mtx)
 		ci->ci_mutex_level++;
 #endif
 		WITNESS_LOCK(MUTEX_LOCK_OBJECT(mtx), LOP_EXCLUSIVE);
+		LLTRACE(lltrace_lock, mtx, LLTRACE_LK_MTX, LLTRACE_LK_I_EXCL,
+		    (unsigned long)__builtin_return_address(0));
 		return (1);
 	}
 
@@ -393,7 +395,8 @@ mtx_enter_try(struct mutex *mtx)
 	if (__predict_false((owner & ~1UL) == self))
 		panic("mtx %p: locking against myself", mtx);
 #endif
-
+	LLTRACE(lltrace_lock, mtx, LLTRACE_LK_MTX, LLTRACE_LK_I_FAIL,
+	    (unsigned long)__builtin_return_address(0));
 	return (0);
 }
 
@@ -410,6 +413,9 @@ mtx_enter(struct mutex *mtx)
 	int s;
 #ifdef MP_LOCKDEBUG
 	long nticks = __mp_lock_spinout;
+#endif
+#if NLLT > 0
+	unsigned int lltev = LLTRACE_LK_I_EXCL;
 #endif
 
 	/* Avoid deadlocks after panic or in DDB */
@@ -435,7 +441,8 @@ mtx_enter(struct mutex *mtx)
 
 	/* we're going to have to spin for it now */
 	spc->spc_spinning++;
-
+	LLTRACE_SPC(spc, lltrace_lock, mtx, LLTRACE_LK_MTX, LLTRACE_LK_A_START,
+	    (unsigned long)__builtin_return_address(0));
 	for (spins = 0; spins < 40; spins++) {
 		if (ISSET(owner, 1)) {
 			/* don't spin if cpus are already parked */
@@ -492,6 +499,9 @@ mtx_enter(struct mutex *mtx)
 	mtx_leave_park(p, m);
 spinlocked:
 	spc->spc_spinning--;
+#if NLLT > 0
+	lltev = LLTRACE_LK_A_EXCL;
+#endif
 locked:
 	membar_enter_after_atomic();
 	if (mtx->mtx_wantipl != IPL_NONE)
@@ -499,6 +509,8 @@ locked:
 #ifdef DIAGNOSTIC
 	ci->ci_mutex_level++;
 #endif
+	LLTRACE_SPC(spc, lltrace_lock, mtx, LLTRACE_LK_MTX, lltev,
+	    (unsigned long)__builtin_return_address(0));
 	WITNESS_LOCK(MUTEX_LOCK_OBJECT(mtx), LOP_EXCLUSIVE);
 }
 
@@ -514,6 +526,8 @@ mtx_leave(struct mutex *mtx)
 		return;
 
 	WITNESS_UNLOCK(MUTEX_LOCK_OBJECT(mtx), LOP_EXCLUSIVE);
+	LLTRACE(lltrace_lock, mtx, LLTRACE_LK_MTX, LLTRACE_LK_R_EXCL,
+	    (unsigned long)__builtin_return_address(0));
 
 #ifdef DIAGNOSTIC
 	curcpu()->ci_mutex_level--;
