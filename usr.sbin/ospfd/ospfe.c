@@ -157,10 +157,15 @@ ospfe(struct ospfd_conf *xconf, int pipe_parent2ospfe[2], int pipe_ospfe2rde[2],
 		fatal(NULL);
 	if (imsgbuf_init(&iev_rde->ibuf, pipe_ospfe2rde[0]) == -1)
 		fatal(NULL);
+	imsgbuf_set_userdata(&iev_rde->ibuf, iev_rde);
+	imsgbuf_set_close_callback(&iev_rde->ibuf, imsg_event_add);
 	iev_rde->handler = ospfe_dispatch_rde;
+
 	if (imsgbuf_init(&iev_main->ibuf, pipe_parent2ospfe[1]) == -1)
 		fatal(NULL);
 	imsgbuf_allow_fdpass(&iev_main->ibuf);
+	imsgbuf_set_userdata(&iev_main->ibuf, iev_rde);
+	imsgbuf_set_close_callback(&iev_main->ibuf, imsg_event_add);
 	iev_main->handler = ospfe_dispatch_main;
 
 	/* setup event handler */
@@ -478,7 +483,7 @@ ospfe_dispatch_main(int fd, short event, void *bula)
 		imsg_free(&imsg);
 	}
 	if (!shut)
-		imsg_event_add(iev);
+		imsg_event_add(&iev->ibuf, iev);
 	else {
 		/* this pipe is dead, so remove the event handler */
 		event_del(&iev->ev);
@@ -790,7 +795,7 @@ ospfe_dispatch_rde(int fd, short event, void *bula)
 		imsg_free(&imsg);
 	}
 	if (!shut)
-		imsg_event_add(iev);
+		imsg_event_add(&iev->ibuf, iev);
 	else {
 		/* this pipe is dead, so remove the event handler */
 		event_del(&iev->ev);

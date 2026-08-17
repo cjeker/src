@@ -163,9 +163,14 @@ rde(struct ospfd_conf *xconf, int pipe_parent2rde[2], int pipe_ospfe2rde[2],
 		fatal(NULL);
 	if (imsgbuf_init(&iev_ospfe->ibuf, pipe_ospfe2rde[1]) == -1)
 		fatal(NULL);
+	imsgbuf_set_userdata(&iev_ospfe->ibuf, iev_ospfe);
+	imsgbuf_set_close_callback(&iev_ospfe->ibuf, imsg_event_add);
 	iev_ospfe->handler = rde_dispatch_imsg;
+
 	if (imsgbuf_init(&iev_main->ibuf, pipe_parent2rde[1]) == -1)
 		fatal(NULL);
+	imsgbuf_set_userdata(&iev_main->ibuf, iev_main);
+	imsgbuf_set_close_callback(&iev_main->ibuf, imsg_event_add);
 	iev_main->handler = rde_dispatch_parent;
 
 	/* setup event handler */
@@ -631,7 +636,7 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 		imsg_free(&imsg);
 	}
 	if (!shut)
-		imsg_event_add(iev);
+		imsg_event_add(&iev->ibuf, iev);
 	else {
 		/* this pipe is dead, so remove the event handler */
 		event_del(&iev->ev);
@@ -747,7 +752,7 @@ rde_dispatch_parent(int fd, short event, void *bula)
 		imsg_free(&imsg);
 	}
 	if (!shut)
-		imsg_event_add(iev);
+		imsg_event_add(&iev->ibuf, iev);
 	else {
 		/* this pipe is dead, so remove the event handler */
 		event_del(&iev->ev);
@@ -825,7 +830,6 @@ rde_send_change_kroute(struct rt_node *r)
 		return;
 	}
 	imsg_close(&iev_main->ibuf, wbuf);
-	imsg_event_add(iev_main);
 }
 
 void

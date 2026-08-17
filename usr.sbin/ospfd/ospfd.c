@@ -266,9 +266,14 @@ main(int argc, char *argv[])
 	if (imsgbuf_init(&iev_ospfe->ibuf, pipe_parent2ospfe[0]) == -1)
 		fatal(NULL);
 	imsgbuf_allow_fdpass(&iev_ospfe->ibuf);
+	imsgbuf_set_userdata(&iev_ospfe->ibuf, iev_ospfe);
+	imsgbuf_set_close_callback(&iev_ospfe->ibuf, imsg_event_add);
 	iev_ospfe->handler = main_dispatch_ospfe;
+
 	if (imsgbuf_init(&iev_rde->ibuf, pipe_parent2rde[0]) == -1)
 		fatal(NULL);
+	imsgbuf_set_userdata(&iev_rde->ibuf, iev_rde);
+	imsgbuf_set_close_callback(&iev_rde->ibuf, imsg_event_add);
 	iev_rde->handler = main_dispatch_rde;
 
 	/* setup event handler */
@@ -432,7 +437,7 @@ main_dispatch_ospfe(int fd, short event, void *bula)
 		imsg_free(&imsg);
 	}
 	if (!shut)
-		imsg_event_add(iev);
+		imsg_event_add(&iev->ibuf, iev);
 	else {
 		/* this pipe is dead, so remove the event handler */
 		event_del(&iev->ev);
@@ -492,7 +497,7 @@ main_dispatch_rde(int fd, short event, void *bula)
 		imsg_free(&imsg);
 	}
 	if (!shut)
-		imsg_event_add(iev);
+		imsg_event_add(&iev->ibuf, iev);
 	else {
 		/* this pipe is dead, so remove the event handler */
 		event_del(&iev->ev);
@@ -522,8 +527,10 @@ main_imsg_compose_rde(int type, pid_t pid, void *data, u_int16_t datalen)
 }
 
 void
-imsg_event_add(struct imsgev *iev)
+imsg_event_add(struct imsgbuf *imsgbuf, void *udata)
 {
+	struct imsgev *iev = udata;
+
 	iev->events = EV_READ;
 	if (imsgbuf_queuelen(&iev->ibuf) > 0)
 		iev->events |= EV_WRITE;
@@ -537,12 +544,7 @@ int
 imsg_compose_event(struct imsgev *iev, u_int16_t type, u_int32_t peerid,
     pid_t pid, int fd, void *data, u_int16_t datalen)
 {
-	int	ret;
-
-	if ((ret = imsg_compose(&iev->ibuf, type, peerid,
-	    pid, fd, data, datalen)) != -1)
-		imsg_event_add(iev);
-	return (ret);
+	return imsg_compose(&iev->ibuf, type, peerid, pid, fd, data, datalen);
 }
 
 int
