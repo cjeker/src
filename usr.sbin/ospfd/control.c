@@ -182,7 +182,10 @@ control_accept(int listenfd, short event, void *bula)
 		free(c);
 		return;
 	}
+	imsgbuf_set_userdata(&c->iev.ibuf, &c->iev);
+	imsgbuf_set_close_callback(&c->iev.ibuf, imsg_event_add);
 	c->iev.handler = control_dispatch_imsg;
+
 	c->iev.events = EV_READ;
 	event_set(&c->iev.ev, c->iev.ibuf.fd, c->iev.events,
 	    c->iev.handler, &c->iev);
@@ -342,7 +345,7 @@ control_dispatch_imsg(int fd, short event, void *bula)
 		imsg_free(&imsg);
 	}
 
-	imsg_event_add(&c->iev);
+	imsg_event_add(&c->iev.ibuf, &c->iev);
 }
 
 int
