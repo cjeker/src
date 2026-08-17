@@ -509,21 +509,21 @@ void
 main_imsg_compose_ospfe(int type, pid_t pid, void *data, u_int16_t datalen)
 {
 	if (iev_ospfe)
-		imsg_compose_event(iev_ospfe, type, 0, pid, -1, data, datalen);
+		imsg_compose(&iev_ospfe->ibuf, type, 0, pid, -1, data, datalen);
 }
 
 void
 main_imsg_compose_ospfe_fd(int type, pid_t pid, int fd)
 {
 	if (iev_ospfe)
-		imsg_compose_event(iev_ospfe, type, 0, pid, fd, NULL, 0);
+		imsg_compose(&iev_ospfe->ibuf, type, 0, pid, fd, NULL, 0);
 }
 
 void
 main_imsg_compose_rde(int type, pid_t pid, void *data, u_int16_t datalen)
 {
 	if (iev_rde)
-		imsg_compose_event(iev_rde, type, 0, pid, -1, data, datalen);
+		imsg_compose(&iev_rde->ibuf, type, 0, pid, -1, data, datalen);
 }
 
 void
@@ -538,13 +538,6 @@ imsg_event_add(struct imsgbuf *imsgbuf, void *udata)
 	event_del(&iev->ev);
 	event_set(&iev->ev, iev->ibuf.fd, iev->events, iev->handler, iev);
 	event_add(&iev->ev, NULL);
-}
-
-int
-imsg_compose_event(struct imsgev *iev, u_int16_t type, u_int32_t peerid,
-    pid_t pid, int fd, void *data, u_int16_t datalen)
-{
-	return imsg_compose(&iev->ibuf, type, peerid, pid, fd, data, datalen);
 }
 
 int
@@ -768,7 +761,7 @@ ospf_reload(void)
 				return (-1);
 			if (iface->auth_type == AUTH_CRYPT)
 				if (md_list_send(&iface->auth_md_list,
-				    iev_ospfe) == -1)
+				    &iev_ospfe->ibuf) == -1)
 					return (-1);
 		}
 	}
@@ -785,9 +778,9 @@ ospf_reload(void)
 int
 ospf_sendboth(enum imsg_type type, void *buf, u_int16_t len)
 {
-	if (imsg_compose_event(iev_ospfe, type, 0, 0, -1, buf, len) == -1)
+	if (imsg_compose(&iev_ospfe->ibuf, type, 0, 0, -1, buf, len) == -1)
 		return (-1);
-	if (imsg_compose_event(iev_rde, type, 0, 0, -1, buf, len) == -1)
+	if (imsg_compose(&iev_rde->ibuf, type, 0, 0, -1, buf, len) == -1)
 		return (-1);
 	return (0);
 }

@@ -269,12 +269,12 @@ md_list_find(struct auth_md_head *head, u_int8_t keyid)
 }
 
 int
-md_list_send(struct auth_md_head *head, struct imsgev *to)
+md_list_send(struct auth_md_head *head, struct imsgbuf *to)
 {
 	struct auth_md	*m;
 
 	TAILQ_FOREACH(m, head, entry) {
-		if (imsg_compose_event(to, IMSG_RECONF_AUTHMD,
+		if (imsg_compose(to, IMSG_RECONF_AUTHMD,
 		    m->keyid, 0, -1, m->key, sizeof(m->key)) == -1)
 			return (-1);
 	}
