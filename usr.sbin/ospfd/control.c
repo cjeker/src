@@ -302,7 +302,7 @@ control_dispatch_imsg(int fd, short event, void *bula)
 			    sizeof(ifidx)) {
 				memcpy(&ifidx, imsg.data, sizeof(ifidx));
 				ospfe_iface_ctl(c, ifidx);
-				imsg_compose_event(&c->iev, IMSG_CTL_END, 0,
+				imsg_compose(&c->iev.ibuf, IMSG_CTL_END, 0,
 				    0, -1, NULL, 0);
 			}
 			break;
@@ -356,6 +356,6 @@ control_imsg_relay(struct imsg *imsg)
 	if ((c = control_connbypid(imsg->hdr.pid)) == NULL)
 		return (0);
 
-	return (imsg_compose_event(&c->iev, imsg->hdr.type, 0, imsg->hdr.pid,
+	return (imsg_compose(&c->iev.ibuf, imsg->hdr.type, 0, imsg->hdr.pid,
 	    -1, imsg->data, imsg->hdr.len - IMSG_HEADER_SIZE));
 }

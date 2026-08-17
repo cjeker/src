@@ -620,8 +620,6 @@ void	main_imsg_compose_rde(int, pid_t, void *, u_int16_t);
 int	ospf_redistribute(struct kroute *, u_int32_t *);
 void	merge_config(struct ospfd_conf *, struct ospfd_conf *);
 void	imsg_event_add(struct imsgbuf *, void *);
-int	imsg_compose_event(struct imsgev *, u_int16_t, u_int32_t,
-	    pid_t, int, void *, u_int16_t);
 int	ifstate_is_up(struct kif *kif);
 struct iface
 	*iface_txsan(const struct iface *);

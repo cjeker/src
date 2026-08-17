@@ -245,7 +245,7 @@ int
 rde_imsg_compose_ospfe(int type, u_int32_t peerid, pid_t pid, void *data,
     u_int16_t datalen)
 {
-	return (imsg_compose_event(iev_ospfe, type, peerid, pid, -1,
+	return (imsg_compose(&iev_ospfe->ibuf, type, peerid, pid, -1,
 	    data, datalen));
 }
 
@@ -360,8 +360,8 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 
 			lsa_snap(nbr);
 
-			imsg_compose_event(iev_ospfe, IMSG_DB_END, imsg.hdr.peerid,
-			    0, -1, NULL, 0);
+			imsg_compose(&iev_ospfe->ibuf, IMSG_DB_END,
+			    imsg.hdr.peerid, 0, -1, NULL, 0);
 			break;
 		case IMSG_DD:
 			nbr = rde_nbr_find(imsg.hdr.peerid);
@@ -393,7 +393,7 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 					 * newer or missing
 					 */
 					rde_req_list_add(nbr, &lsa_hdr);
-					imsg_compose_event(iev_ospfe, IMSG_DD,
+					imsg_compose(&iev_ospfe->ibuf, IMSG_DD,
 					    imsg.hdr.peerid, 0, -1, &lsa_hdr,
 					    sizeof(lsa_hdr));
 				}
@@ -404,10 +404,10 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 				    "packet", imsg.hdr.peerid);
 
 			if (!error)
-				imsg_compose_event(iev_ospfe, IMSG_DD_END,
+				imsg_compose(&iev_ospfe->ibuf, IMSG_DD_END,
 				    imsg.hdr.peerid, 0, -1, NULL, 0);
 			else
-				imsg_compose_event(iev_ospfe, IMSG_DD_BADLSA,
+				imsg_compose(&iev_ospfe->ibuf, IMSG_DD_BADLSA,
 				    imsg.hdr.peerid, 0, -1, NULL, 0);
 			break;
 		case IMSG_LS_REQ:
@@ -426,12 +426,12 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 				    req_hdr.adv_rtr)) == NULL) {
 					log_debug("rde_dispatch_imsg: "
 					    "requested LSA not found");
-					imsg_compose_event(iev_ospfe,
+					imsg_compose(&iev_ospfe->ibuf,
 					    IMSG_LS_BADREQ, imsg.hdr.peerid,
 					    0, -1, NULL, 0);
 					continue;
 				}
-				imsg_compose_event(iev_ospfe, IMSG_LS_UPD,
+				imsg_compose(&iev_ospfe->ibuf, IMSG_LS_UPD,
 				    imsg.hdr.peerid, 0, -1, v->lsa,
 				    ntohs(v->lsa->hdr.len));
 			}
@@ -486,13 +486,13 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 						break;
 
 				/* flood and perhaps ack LSA */
-				imsg_compose_event(iev_ospfe, IMSG_LS_FLOOD,
+				imsg_compose(&iev_ospfe->ibuf, IMSG_LS_FLOOD,
 				    imsg.hdr.peerid, 0, -1, lsa,
 				    ntohs(lsa->hdr.len));
 
 				/* reflood self originated LSA */
 				if (self && v)
-					imsg_compose_event(iev_ospfe,
+					imsg_compose(&iev_ospfe->ibuf,
 					    IMSG_LS_FLOOD, v->peerid, 0, -1,
 					    v->lsa, ntohs(v->lsa->hdr.len));
 				/* new LSA was not added so free it */
@@ -508,7 +508,7 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 				 * in the table we should reset the session.
 				 */
 				if (rde_req_list_exists(nbr, &lsa->hdr)) {
-					imsg_compose_event(iev_ospfe,
+					imsg_compose(&iev_ospfe->ibuf,
 					    IMSG_LS_BADREQ, imsg.hdr.peerid,
 					    0, -1, NULL, 0);
 					free(lsa);
@@ -528,12 +528,12 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 					break;
 
 				/* directly send current LSA, no ack */
-				imsg_compose_event(iev_ospfe, IMSG_LS_UPD,
+				imsg_compose(&iev_ospfe->ibuf, IMSG_LS_UPD,
 				    imsg.hdr.peerid, 0, -1, v->lsa,
 				    ntohs(v->lsa->hdr.len));
 			} else {
 				/* LSA equal send direct ack */
-				imsg_compose_event(iev_ospfe, IMSG_LS_ACK,
+				imsg_compose(&iev_ospfe->ibuf, IMSG_LS_ACK,
 				    imsg.hdr.peerid, 0, -1, &lsa->hdr,
 				    sizeof(lsa->hdr));
 				free(lsa);
@@ -596,12 +596,12 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 						    imsg.hdr.pid);
 				}
 			}
-			imsg_compose_event(iev_ospfe, IMSG_CTL_END, 0,
+			imsg_compose(&iev_ospfe->ibuf, IMSG_CTL_END, 0,
 			    imsg.hdr.pid, -1, NULL, 0);
 			break;
 		case IMSG_CTL_SHOW_RIB:
 			LIST_FOREACH(area, &rdeconf->area_list, entry) {
-				imsg_compose_event(iev_ospfe, IMSG_CTL_AREA,
+				imsg_compose(&iev_ospfe->ibuf, IMSG_CTL_AREA,
 				    0, imsg.hdr.pid, -1,
 				    &area->id, sizeof(area->id));
 
@@ -611,14 +611,14 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 			aid.s_addr = 0;
 			rt_dump(aid, imsg.hdr.pid, RIB_EXT);
 
-			imsg_compose_event(iev_ospfe, IMSG_CTL_END, 0,
+			imsg_compose(&iev_ospfe->ibuf, IMSG_CTL_END, 0,
 			    imsg.hdr.pid, -1, NULL, 0);
 			break;
 		case IMSG_CTL_SHOW_SUM:
 			rde_send_summary(imsg.hdr.pid);
 			LIST_FOREACH(area, &rdeconf->area_list, entry)
 				rde_send_summary_area(area, imsg.hdr.pid);
-			imsg_compose_event(iev_ospfe, IMSG_CTL_END, 0,
+			imsg_compose(&iev_ospfe->ibuf, IMSG_CTL_END, 0,
 			    imsg.hdr.pid, -1, NULL, 0);
 			break;
 		case IMSG_CTL_LOG_VERBOSE:
@@ -765,12 +765,12 @@ rde_dump_area(struct area *area, int imsg_type, pid_t pid)
 {
 	struct iface	*iface;
 
-	imsg_compose_event(iev_ospfe, IMSG_CTL_AREA, 0, pid, -1, &area->id,
+	imsg_compose(&iev_ospfe->ibuf, IMSG_CTL_AREA, 0, pid, -1, &area->id,
 	    sizeof(area->id));
 
 	/* dump link local lsa */
 	LIST_FOREACH(iface, &area->iface_list, entry) {
-		imsg_compose_event(iev_ospfe, IMSG_CTL_IFACE,
+		imsg_compose(&iev_ospfe->ibuf, IMSG_CTL_IFACE,
 		    0, pid, -1, iface->name, sizeof(iface->name));
 		lsa_dump(&iface->lsa_tree, imsg_type, pid);
 	}
@@ -841,7 +841,7 @@ rde_send_delete_kroute(struct rt_node *r)
 	kr.prefix.s_addr = r->prefix.s_addr;
 	kr.prefixlen = r->prefixlen;
 
-	imsg_compose_event(iev_main, IMSG_KROUTE_DELETE, 0, 0, -1,
+	imsg_compose(&iev_main->ibuf, IMSG_KROUTE_DELETE, 0, 0, -1,
 	    &kr, sizeof(kr));
 }
 

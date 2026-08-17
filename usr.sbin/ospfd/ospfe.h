@@ -102,7 +102,7 @@ int		 auth_gen(struct ibuf *, struct iface *);
 void		 md_list_add(struct auth_md_head *, u_int8_t, char *);
 void		 md_list_copy(struct auth_md_head *, struct auth_md_head *);
 void		 md_list_clr(struct auth_md_head *);
-int		 md_list_send(struct auth_md_head *, struct imsgev *);
+int		 md_list_send(struct auth_md_head *, struct imsgbuf *);
 
 /* database.c */
 int	 send_db_description(struct nbr *);
