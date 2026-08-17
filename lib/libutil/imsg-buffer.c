@@ -697,6 +697,12 @@ msgbuf_queuelen(struct msgbuf *msgbuf)
 	return ibufq_queuelen(&msgbuf->bufs);
 }
 
+uint32_t
+msgbuf_readlen(struct msgbuf *msgbuf)
+{
+	return ibufq_queuelen(&msgbuf->rbufs);
+}
+
 void
 msgbuf_clear(struct msgbuf *msgbuf)
 {
