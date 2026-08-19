@@ -29,7 +29,7 @@
 #include <netinet/in.h>
 #include <event.h>
 
-#include <imsg.h>
+#include "imsgev.h"
 #include "ospf.h"
 #include "log.h"
 
@@ -65,14 +65,6 @@ static const char * const log_procnames[] = {
 	"parent",
 	"ospfe",
 	"rde"
-};
-
-struct imsgev {
-	struct imsgbuf		 ibuf;
-	void			(*handler)(int, short, void *);
-	struct event		 ev;
-	void			*data;
-	short			 events;
 };
 
 enum imsg_type {
@@ -619,7 +611,6 @@ void	main_imsg_compose_ospfe_fd(int, pid_t, int);
 void	main_imsg_compose_rde(int, pid_t, void *, u_int16_t);
 int	ospf_redistribute(struct kroute *, u_int32_t *);
 void	merge_config(struct ospfd_conf *, struct ospfd_conf *);
-void	imsg_event_add(struct imsgbuf *, void *);
 int	ifstate_is_up(struct kif *kif);
 struct iface
 	*iface_txsan(const struct iface *);

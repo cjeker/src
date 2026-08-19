@@ -48,8 +48,6 @@ void		 orig_rtr_lsa_all(struct area *);
 struct iface	*find_vlink(struct abr_rtr *);
 
 struct ospfd_conf	*oeconf = NULL, *noeconf;
-static struct imsgev	*iev_main;
-static struct imsgev	*iev_rde;
 static struct imsgbuf	*imsg_main;
 static struct imsgbuf	*imsg_rde;
 int			 oe_nofib;
@@ -154,34 +152,12 @@ ospfe(struct ospfd_conf *xconf, int pipe_parent2ospfe[2], int pipe_ospfe2rde[2],
 	close(pipe_parent2rde[0]);
 	close(pipe_parent2rde[1]);
 
-	if ((iev_rde = malloc(sizeof(struct imsgev))) == NULL ||
-	    (iev_main = malloc(sizeof(struct imsgev))) == NULL)
+	if ((imsg_rde = imsgev_new(pipe_ospfe2rde[0],
+	    ospfe_dispatch_rde)) == NULL ||
+	    (imsg_main = imsgev_new(pipe_parent2ospfe[1],
+	    ospfe_dispatch_main)) == NULL)
 		fatal(NULL);
-	if (imsgbuf_init(&iev_rde->ibuf, pipe_ospfe2rde[0]) == -1)
-		fatal(NULL);
-	imsgbuf_set_userdata(&iev_rde->ibuf, iev_rde);
-	imsgbuf_set_close_callback(&iev_rde->ibuf, imsg_event_add);
-	iev_rde->handler = ospfe_dispatch_rde;
-	imsg_rde = &iev_rde->ibuf;
-
-	if (imsgbuf_init(&iev_main->ibuf, pipe_parent2ospfe[1]) == -1)
-		fatal(NULL);
-	imsgbuf_allow_fdpass(&iev_main->ibuf);
-	imsgbuf_set_userdata(&iev_main->ibuf, iev_rde);
-	imsgbuf_set_close_callback(&iev_main->ibuf, imsg_event_add);
-	iev_main->handler = ospfe_dispatch_main;
-	imsg_main = &iev_main->ibuf;
-
-	/* setup event handler */
-	iev_rde->events = EV_READ;
-	event_set(&iev_rde->ev, iev_rde->ibuf.fd, iev_rde->events,
-	    iev_rde->handler, iev_rde);
-	event_add(&iev_rde->ev, NULL);
-
-	iev_main->events = EV_READ;
-	event_set(&iev_main->ev, iev_main->ibuf.fd, iev_main->events,
-	    iev_main->handler, iev_main);
-	event_add(&iev_main->ev, NULL);
+	imsgbuf_allow_fdpass(imsg_main);
 
 	event_set(&oeconf->ev, oeconf->ospf_socket, EV_READ|EV_PERSIST,
 	    recv_packet, oeconf);
@@ -236,17 +212,13 @@ ospfe_shutdown(void)
 	nbr_del(nbr_find_peerid(NBR_IDSELF));
 	close(oeconf->ospf_socket);
 
-	/* close pipes */
+	/* flush and close imsg pipes */
 	imsgbuf_write(imsg_rde);
-	imsgbuf_clear(imsg_rde);
-	close(imsg_rde->fd);
+	imsgev_free(imsg_rde);
 	imsgbuf_write(imsg_main);
-	imsgbuf_clear(imsg_main);
-	close(imsg_main->fd);
+	imsgev_free(imsg_main);
 
 	/* clean up */
-	free(iev_rde);
-	free(iev_main);
 	free(oeconf);
 
 	log_info("ospf engine exiting");
@@ -268,14 +240,13 @@ ospfe_imsg_compose_rde(int type, u_int32_t peerid, pid_t pid,
 }
 
 void
-ospfe_dispatch_main(int fd, short event, void *bula)
+ospfe_dispatch_main(int fd, short event, void *arg)
 {
 	static struct area	*narea;
 	static struct iface	*niface;
 	struct ifaddrchange	*ifc;
 	struct imsg	 imsg;
-	struct imsgev	*iev = bula;
-	struct imsgbuf	*ibuf = &iev->ibuf;
+	struct imsgbuf	*ibuf = arg;
 	struct area	*area = NULL;
 	struct iface	*iface = NULL;
 	struct kif	*kif;
@@ -486,20 +457,18 @@ ospfe_dispatch_main(int fd, short event, void *bula)
 		imsg_free(&imsg);
 	}
 	if (!shut)
-		imsg_event_add(&iev->ibuf, iev);
+		imsg_event_add(ibuf, imsgbuf_get_userdata(ibuf));
 	else {
-		/* this pipe is dead, so remove the event handler */
-		event_del(&iev->ev);
+		/* this pipe is dead, exit asap */
 		event_loopexit(NULL);
 	}
 }
 
 void
-ospfe_dispatch_rde(int fd, short event, void *bula)
+ospfe_dispatch_rde(int fd, short event, void *arg)
 {
 	struct lsa_hdr		 lsa_hdr;
-	struct imsgev		*iev = bula;
-	struct imsgbuf		*ibuf = &iev->ibuf;
+	struct imsgbuf		*ibuf = arg;
 	struct nbr		*nbr;
 	struct lsa_hdr		*lhp;
 	struct lsa_ref		*ref;
@@ -798,10 +767,9 @@ ospfe_dispatch_rde(int fd, short event, void *bula)
 		imsg_free(&imsg);
 	}
 	if (!shut)
-		imsg_event_add(&iev->ibuf, iev);
+		imsg_event_add(ibuf, imsgbuf_get_userdata(ibuf));
 	else {
-		/* this pipe is dead, so remove the event handler */
-		event_del(&iev->ev);
+		/* this pipe is dead, exit asap */
 		event_loopexit(NULL);
 	}
 }
@@ -1225,7 +1193,7 @@ ospfe_iface_ctl(struct ctl_conn *c, unsigned int idx)
 		LIST_FOREACH(iface, &area->iface_list, entry)
 			if (idx == 0 || idx == iface->ifindex) {
 				ictl = if_to_ctl(iface);
-				imsg_compose(&c->iev.ibuf,
+				imsg_compose(c->imsgbuf,
 				    IMSG_CTL_SHOW_INTERFACE, 0, 0, -1,
 				    ictl, sizeof(struct ctl_iface));
 			}
@@ -1244,13 +1212,13 @@ ospfe_nbr_ctl(struct ctl_conn *c)
 			LIST_FOREACH(nbr, &iface->nbr_list, entry) {
 				if (iface->self != nbr) {
 					nctl = nbr_to_ctl(nbr);
-					imsg_compose(&c->iev.ibuf,
+					imsg_compose(c->imsgbuf,
 					    IMSG_CTL_SHOW_NBR, 0, 0, -1, nctl,
 					    sizeof(struct ctl_nbr));
 				}
 			}
 
-	imsg_compose(&c->iev.ibuf, IMSG_CTL_END, 0, 0, -1, NULL, 0);
+	imsg_compose(c->imsgbuf, IMSG_CTL_END, 0, 0, -1, NULL, 0);
 }
 
 void

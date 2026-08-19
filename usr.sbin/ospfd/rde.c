@@ -65,8 +65,6 @@ struct lsa	*orig_asext_lsa(struct kroute *, u_int32_t, u_int16_t);
 struct lsa	*orig_sum_lsa(struct rt_node *, struct area *, u_int8_t, int);
 
 struct ospfd_conf	*rdeconf = NULL, *nconf = NULL;
-static struct imsgev	*iev_ospfe;
-static struct imsgev	*iev_main;
 static struct imsgbuf	*imsg_ospfe;
 static struct imsgbuf	*imsg_main;
 struct rde_nbr		*nbrself;
@@ -160,33 +158,11 @@ rde(struct ospfd_conf *xconf, int pipe_parent2rde[2], int pipe_ospfe2rde[2],
 	close(pipe_parent2ospfe[0]);
 	close(pipe_parent2ospfe[1]);
 
-	if ((iev_ospfe = malloc(sizeof(struct imsgev))) == NULL ||
-	    (iev_main = malloc(sizeof(struct imsgev))) == NULL)
+	if ((imsg_ospfe = imsgev_new(pipe_ospfe2rde[1],
+	    rde_dispatch_imsg)) == NULL ||
+	    (imsg_main = imsgev_new(pipe_parent2rde[1],
+	    rde_dispatch_parent)) == NULL)
 		fatal(NULL);
-	if (imsgbuf_init(&iev_ospfe->ibuf, pipe_ospfe2rde[1]) == -1)
-		fatal(NULL);
-	imsgbuf_set_userdata(&iev_ospfe->ibuf, iev_ospfe);
-	imsgbuf_set_close_callback(&iev_ospfe->ibuf, imsg_event_add);
-	iev_ospfe->handler = rde_dispatch_imsg;
-	imsg_ospfe = &iev_ospfe->ibuf;
-
-	if (imsgbuf_init(&iev_main->ibuf, pipe_parent2rde[1]) == -1)
-		fatal(NULL);
-	imsgbuf_set_userdata(&iev_main->ibuf, iev_main);
-	imsgbuf_set_close_callback(&iev_main->ibuf, imsg_event_add);
-	iev_main->handler = rde_dispatch_parent;
-	imsg_main = &iev_main->ibuf;
-
-	/* setup event handler */
-	iev_ospfe->events = EV_READ;
-	event_set(&iev_ospfe->ev, iev_ospfe->ibuf.fd, iev_ospfe->events,
-	    iev_ospfe->handler, iev_ospfe);
-	event_add(&iev_ospfe->ev, NULL);
-
-	iev_main->events = EV_READ;
-	event_set(&iev_main->ev, iev_main->ibuf.fd, iev_main->events,
-	    iev_main->handler, iev_main);
-	event_add(&iev_main->ev, NULL);
 
 	evtimer_set(&rdeconf->ev, spf_timer, rdeconf);
 	cand_list_init();
@@ -216,11 +192,6 @@ rde_shutdown(void)
 	struct area	*a;
 	struct vertex	*v, *nv;
 
-	/* close pipes */
-	imsgbuf_clear(imsg_ospfe);
-	close(imsg_ospfe->fd);
-	imsgbuf_clear(imsg_main);
-	close(imsg_main->fd);
 
 	stop_spf_timer(rdeconf);
 	cand_list_clr();
@@ -237,8 +208,8 @@ rde_shutdown(void)
 	rde_asext_free();
 	rde_nbr_free();
 
-	free(iev_ospfe);
-	free(iev_main);
+	imsgev_free(imsg_ospfe);
+	imsgev_free(imsg_main);
 	free(rdeconf);
 
 	log_info("route decision engine exiting");
@@ -253,10 +224,9 @@ rde_imsg_compose_ospfe(int type, u_int32_t peerid, pid_t pid, void *data,
 }
 
 void
-rde_dispatch_imsg(int fd, short event, void *bula)
+rde_dispatch_imsg(int fd, short event, void *arg)
 {
-	struct imsgev		*iev = bula;
-	struct imsgbuf		*ibuf;
+	struct imsgbuf		*ibuf = arg;
 	struct imsg		 imsg;
 	struct in_addr		 aid;
 	struct ls_req_hdr	 req_hdr;
@@ -271,8 +241,6 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 	time_t			 now;
 	int			 n, r, state, self, error, shut = 0, verbose;
 	u_int16_t		 l;
-
-	ibuf = &iev->ibuf;
 
 	if (event & EV_READ) {
 		if ((n = imsgbuf_read(ibuf)) == -1)
@@ -639,27 +607,23 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 		imsg_free(&imsg);
 	}
 	if (!shut)
-		imsg_event_add(&iev->ibuf, iev);
+		imsg_event_add(ibuf, imsgbuf_get_userdata(ibuf));
 	else {
-		/* this pipe is dead, so remove the event handler */
-		event_del(&iev->ev);
+		/* this pipe is dead, exit asap */
 		event_loopexit(NULL);
 	}
 }
 
 void
-rde_dispatch_parent(int fd, short event, void *bula)
+rde_dispatch_parent(int fd, short event, void *arg)
 {
 	static struct area	*narea;
 	struct iface		*niface;
 	struct imsg		 imsg;
 	struct kroute		 rr;
-	struct imsgev		*iev = bula;
-	struct imsgbuf		*ibuf;
+	struct imsgbuf		*ibuf = arg;
 	struct redistribute	*nred;
 	int			 n, shut = 0;
-
-	ibuf = &iev->ibuf;
 
 	if (event & EV_READ) {
 		if ((n = imsgbuf_read(ibuf)) == -1)
@@ -755,10 +719,9 @@ rde_dispatch_parent(int fd, short event, void *bula)
 		imsg_free(&imsg);
 	}
 	if (!shut)
-		imsg_event_add(&iev->ibuf, iev);
+		imsg_event_add(ibuf, imsgbuf_get_userdata(ibuf));
 	else {
-		/* this pipe is dead, so remove the event handler */
-		event_del(&iev->ev);
+		/* this pipe is dead, exit asap */
 		event_loopexit(NULL);
 	}
 }
