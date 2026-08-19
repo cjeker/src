@@ -50,6 +50,8 @@ struct iface	*find_vlink(struct abr_rtr *);
 struct ospfd_conf	*oeconf = NULL, *noeconf;
 static struct imsgev	*iev_main;
 static struct imsgev	*iev_rde;
+static struct imsgbuf	*imsg_main;
+static struct imsgbuf	*imsg_rde;
 int			 oe_nofib;
 
 void
@@ -160,6 +162,7 @@ ospfe(struct ospfd_conf *xconf, int pipe_parent2ospfe[2], int pipe_ospfe2rde[2],
 	imsgbuf_set_userdata(&iev_rde->ibuf, iev_rde);
 	imsgbuf_set_close_callback(&iev_rde->ibuf, imsg_event_add);
 	iev_rde->handler = ospfe_dispatch_rde;
+	imsg_rde = &iev_rde->ibuf;
 
 	if (imsgbuf_init(&iev_main->ibuf, pipe_parent2ospfe[1]) == -1)
 		fatal(NULL);
@@ -167,6 +170,7 @@ ospfe(struct ospfd_conf *xconf, int pipe_parent2ospfe[2], int pipe_ospfe2rde[2],
 	imsgbuf_set_userdata(&iev_main->ibuf, iev_rde);
 	imsgbuf_set_close_callback(&iev_main->ibuf, imsg_event_add);
 	iev_main->handler = ospfe_dispatch_main;
+	imsg_main = &iev_main->ibuf;
 
 	/* setup event handler */
 	iev_rde->events = EV_READ;
@@ -233,12 +237,12 @@ ospfe_shutdown(void)
 	close(oeconf->ospf_socket);
 
 	/* close pipes */
-	imsgbuf_write(&iev_rde->ibuf);
-	imsgbuf_clear(&iev_rde->ibuf);
-	close(iev_rde->ibuf.fd);
-	imsgbuf_write(&iev_main->ibuf);
-	imsgbuf_clear(&iev_main->ibuf);
-	close(iev_main->ibuf.fd);
+	imsgbuf_write(imsg_rde);
+	imsgbuf_clear(imsg_rde);
+	close(imsg_rde->fd);
+	imsgbuf_write(imsg_main);
+	imsgbuf_clear(imsg_main);
+	close(imsg_main->fd);
 
 	/* clean up */
 	free(iev_rde);
@@ -253,15 +257,14 @@ ospfe_shutdown(void)
 int
 ospfe_imsg_compose_parent(int type, pid_t pid, void *data, u_int16_t datalen)
 {
-	return (imsg_compose(&iev_main->ibuf, type, 0, pid, -1, data, datalen));
+	return (imsg_compose(imsg_main, type, 0, pid, -1, data, datalen));
 }
 
 int
 ospfe_imsg_compose_rde(int type, u_int32_t peerid, pid_t pid,
     void *data, u_int16_t datalen)
 {
-	return (imsg_compose(&iev_rde->ibuf, type, peerid, pid, -1,
-	    data, datalen));
+	return (imsg_compose(imsg_rde, type, peerid, pid, -1, data, datalen));
 }
 
 void
@@ -1121,7 +1124,7 @@ orig_rtr_lsa(struct area *area)
 		fatal("orig_rtr_lsa: ibuf_set_n16 failed");
 
 	if (self && num_links)
-		imsg_compose(&iev_rde->ibuf, IMSG_LS_UPD, self->peerid, 0,
+		imsg_compose(imsg_rde, IMSG_LS_UPD, self->peerid, 0,
 		    -1, ibuf_data(buf), ibuf_size(buf));
 	else
 		log_warnx("orig_rtr_lsa: empty area %s",
@@ -1186,7 +1189,7 @@ orig_net_lsa(struct iface *iface)
 	if (ibuf_set_n16(buf, LS_CKSUM_OFFSET, chksum) == -1)
 		fatal("orig_net_lsa: ibuf_set_n16 failed");
 
-	imsg_compose(&iev_rde->ibuf, IMSG_LS_UPD, iface->self->peerid, 0,
+	imsg_compose(imsg_rde, IMSG_LS_UPD, iface->self->peerid, 0,
 	    -1, ibuf_data(buf), ibuf_size(buf));
 
 	ibuf_free(buf);

@@ -71,6 +71,8 @@ enum ospfd_process	 ospfd_process;
 struct ospfd_conf	*ospfd_conf = NULL;
 static struct imsgev	*iev_ospfe;
 static struct imsgev	*iev_rde;
+static struct imsgbuf	*imsg_ospfe;
+static struct imsgbuf	*imsg_rde;
 char			*conffile;
 
 pid_t			 ospfe_pid = 0;
@@ -269,12 +271,14 @@ main(int argc, char *argv[])
 	imsgbuf_set_userdata(&iev_ospfe->ibuf, iev_ospfe);
 	imsgbuf_set_close_callback(&iev_ospfe->ibuf, imsg_event_add);
 	iev_ospfe->handler = main_dispatch_ospfe;
+	imsg_ospfe = &iev_ospfe->ibuf;
 
 	if (imsgbuf_init(&iev_rde->ibuf, pipe_parent2rde[0]) == -1)
 		fatal(NULL);
 	imsgbuf_set_userdata(&iev_rde->ibuf, iev_rde);
 	imsgbuf_set_close_callback(&iev_rde->ibuf, imsg_event_add);
 	iev_rde->handler = main_dispatch_rde;
+	imsg_rde = &iev_rde->ibuf;
 
 	/* setup event handler */
 	iev_ospfe->events = EV_READ;
@@ -322,10 +326,10 @@ ospfd_shutdown(void)
 	struct redistribute	*r;
 
 	/* close pipes */
-	imsgbuf_clear(&iev_ospfe->ibuf);
-	close(iev_ospfe->ibuf.fd);
-	imsgbuf_clear(&iev_rde->ibuf);
-	close(iev_rde->ibuf.fd);
+	imsgbuf_clear(imsg_ospfe);
+	close(imsg_ospfe->fd);
+	imsgbuf_clear(imsg_rde);
+	close(imsg_rde->fd);
 
 	control_cleanup();
 	while ((r = SIMPLEQ_FIRST(&ospfd_conf->redist_list)) != NULL) {
@@ -508,22 +512,22 @@ main_dispatch_rde(int fd, short event, void *bula)
 void
 main_imsg_compose_ospfe(int type, pid_t pid, void *data, u_int16_t datalen)
 {
-	if (iev_ospfe)
-		imsg_compose(&iev_ospfe->ibuf, type, 0, pid, -1, data, datalen);
+	if (imsg_ospfe)
+		imsg_compose(imsg_ospfe, type, 0, pid, -1, data, datalen);
 }
 
 void
 main_imsg_compose_ospfe_fd(int type, pid_t pid, int fd)
 {
-	if (iev_ospfe)
-		imsg_compose(&iev_ospfe->ibuf, type, 0, pid, fd, NULL, 0);
+	if (imsg_ospfe)
+		imsg_compose(imsg_ospfe, type, 0, pid, fd, NULL, 0);
 }
 
 void
 main_imsg_compose_rde(int type, pid_t pid, void *data, u_int16_t datalen)
 {
-	if (iev_rde)
-		imsg_compose(&iev_rde->ibuf, type, 0, pid, -1, data, datalen);
+	if (imsg_rde)
+		imsg_compose(imsg_rde, type, 0, pid, -1, data, datalen);
 }
 
 void
@@ -761,7 +765,7 @@ ospf_reload(void)
 				return (-1);
 			if (iface->auth_type == AUTH_CRYPT)
 				if (md_list_send(&iface->auth_md_list,
-				    &iev_ospfe->ibuf) == -1)
+				    imsg_ospfe) == -1)
 					return (-1);
 		}
 	}
@@ -778,9 +782,9 @@ ospf_reload(void)
 int
 ospf_sendboth(enum imsg_type type, void *buf, u_int16_t len)
 {
-	if (imsg_compose(&iev_ospfe->ibuf, type, 0, 0, -1, buf, len) == -1)
+	if (imsg_compose(imsg_ospfe, type, 0, 0, -1, buf, len) == -1)
 		return (-1);
-	if (imsg_compose(&iev_rde->ibuf, type, 0, 0, -1, buf, len) == -1)
+	if (imsg_compose(imsg_rde, type, 0, 0, -1, buf, len) == -1)
 		return (-1);
 	return (0);
 }
