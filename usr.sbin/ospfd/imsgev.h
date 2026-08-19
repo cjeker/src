@@ -1,7 +1,7 @@
-/*	$OpenBSD: control.h,v 1.9 2021/01/19 09:33:38 claudio Exp $ */
+/*	$OpenBSD$ */
 
 /*
- * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
+ * Copyright (c) 2026 Claudio Jeker <claudio@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,24 +16,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _CONTROL_H_
-#define	_CONTROL_H_
+#include <imsg.h>
 
-#include <sys/queue.h>
-#include <sys/time.h>
-#include <event.h>
-
-struct ctl_conn {
-	TAILQ_ENTRY(ctl_conn)	 entry;
-	struct imsgbuf		*imsgbuf;
-};
-
-int	control_check(char *);
-int	control_init(char *);
-int	control_listen(int);
-void	control_accept(int, short, void *);
-void	control_dispatch_imsg(int, short, void *);
-int	control_imsg_relay(struct imsg *);
-void	control_cleanup(void);
-
-#endif	/* _CONTROL_H_ */
+void		 imsg_event_add(struct imsgbuf *, void *);
+struct imsgbuf	*imsgev_new(int, void (*)(int, short, void *));
+void		 imsgev_free(struct imsgbuf *);
