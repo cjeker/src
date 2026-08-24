@@ -188,7 +188,7 @@ out:
 			struct rtidx *ri;
 
 			ri = &rt->rt_idx[i];
-			free(ri->r_art, sizeof(ri->r_art));
+			free(ri->r_art, M_RTABLE, sizeof(ri->r_art));
 		}
 		free(rt, M_RTABLE, rtable_size);
 	}
