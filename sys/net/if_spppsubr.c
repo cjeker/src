@@ -63,8 +63,6 @@
 
 #include <net/if_sppp.h>
 
-extern unsigned int	rtmap_limit;
-
 # define UNTIMEOUT(fun, arg, handle)	\
 	timeout_del(&(handle))
 
@@ -4261,7 +4259,9 @@ sppp_update_gw(struct ifnet *ifp)
 	u_int tid;
 
 	/* update routing table */
-	for (tid = 0; tid <= rtmap_limit; tid++) {
+	for (tid = 0; tid <= rt_tableid_max; tid++) {
+		if (ifp->if_rdomain != rtable_l2(tid))
+			continue;
 		rtable_walk(tid, AF_INET, NULL, sppp_update_gw_walker, ifp);
 	}
 }

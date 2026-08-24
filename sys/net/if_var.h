@@ -383,7 +383,7 @@ int	if_isconnected(const struct ifnet *, unsigned int);
 
 void	if_clone_attach(struct if_clone *);
 
-int	if_clone_create(const char *, int);
+int	if_clone_create(const char *, unsigned int);
 int	if_clone_destroy(const char *);
 
 struct if_clone *

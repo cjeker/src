@@ -453,6 +453,7 @@ void		 rtlabel_unref(u_int16_t);
 
 extern struct rtstat rtstat;
 extern u_long rtgeneration;
+extern int rt_tableid_max;
 
 struct mbuf;
 struct socket;

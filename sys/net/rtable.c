@@ -25,130 +25,81 @@
 #include <sys/malloc.h>
 #include <sys/queue.h>
 #include <sys/domain.h>
+#include <sys/smr.h>
 #include <sys/srp.h>
 #include <sys/smr.h>
 #endif
 
+#include <net/if.h>
+#include <net/if_var.h>
 #include <net/rtable.h>
 #include <net/route.h>
 #include <net/art.h>
 
 /*
- * Structures used by rtable_get() to retrieve the corresponding
- * routing table for a given pair of ``af'' and ``rtableid''.
- *
- * Note that once allocated routing table heads are never freed.
- * This way we do not need to reference count them.
- *
- *	afmap		    rtmap/dommp
- *   -----------          ---------     -----
- *   |   0     |--------> | 0 | 0 | ... | 0 |	Array mapping rtableid (=index)
- *   -----------          ---------     -----   to rdomain/loopback (=value).
- *   | AF_INET |.
- *   ----------- `.       .---------.     .---------.
- *       ...	   `----> | rtable0 | ... | rtableN |	Array of pointers for
- *   -----------          '---------'     '---------'	IPv4 routing tables
- *   | AF_MPLS |					indexed by ``rtableid''.
- *   -----------
+ * Maximum number of alternate routing tables
  */
-struct srp	  *afmap;
-uint8_t		   af2idx[AF_MAX+1];	/* To only allocate supported AF */
-uint8_t		   af2idx_max;
-
-/* Array of routing table pointers. */
-struct rtmap {
-	unsigned int	   limit;
-	void		 **tbl;
-};
+int rt_tableid_max = 255;
 
 /*
- * Array of rtableid -> rdomain mapping.
+ * Routing table lookup structure. rtables are immortal once created.
  *
- * Only used for the first index as described above.
+ *	I	immutable after creation
+ *	K	kernel lock
+ *	N	net lock
+ *	S	SMR pointer
  */
-struct dommp {
-	unsigned int	   limit;
-	/*
-	 * Array to get the routing domain and loopback interface related to
-	 * a routing table. Format:
-	 *
-	 * 8 unused bits | 16 bits for loopback index | 8 bits for rdomain
-	 */
-	unsigned int	  *value;
+struct rtidx {
+	struct rwlock	 r_lock;
+	struct art	*r_art;		/* [I] routing table */
+	struct sockaddr *r_source;	/* [N] use optional src addr */
+	unsigned int	 r_off;		/* [I] Offset of key in bytes */
 };
 
-unsigned int	   rtmap_limit = 0;
+struct rtable {
+	unsigned int		 rt_rdomain;	/* [I] */
+	unsigned int		 rt_loifidx;	/* [I] */
+	struct ip_mrouter	*rt_mrouter;	/* [S] */
+	struct ip6_mrouter	*rt_mrouter6;	/* [S] */
 
-void		   rtmap_init(void);
-void		   rtmap_grow(unsigned int, sa_family_t);
-void		   rtmap_dtor(void *, void *);
+	struct rtidx		 rt_idx[0];	/* af2idx_max entries */
+};
 
-struct srp_gc	   rtmap_gc = SRP_GC_INITIALIZER(rtmap_dtor, NULL);
+struct rtable	**rtables;		/* [S, K] */
+unsigned int	  rtable_limit;		/* [K] needs interlock with rtables */
+size_t		  rtable_size;		/* [I] size of rtable entry */
+struct rwlock	  rtable_lock = RWLOCK_INITIALIZER("rtable");
 
-void		   rtable_init_backend(void);
-struct rtable	  *rtable_alloc(unsigned int, unsigned int, unsigned int);
-struct rtable	  *rtable_get(unsigned int, sa_family_t);
+uint8_t		  af2idx[AF_MAX+1];	/* [I] to only allocate supported AF */
+uint8_t		  af2idx_max;		/* [I] number of tables needed */
 
-void
-rtmap_init(void)
-{
-	const struct domain	*dp;
-	int			 i;
-
-	/* Start with a single table for every domain that requires it. */
-	for (i = 0; (dp = domains[i]) != NULL; i++) {
-		if (dp->dom_rtoffset == 0)
-			continue;
-
-		rtmap_grow(1, dp->dom_family);
-	}
-
-	/* Initialize the rtableid->rdomain mapping table. */
-	rtmap_grow(1, 0);
-
-	rtmap_limit = 1;
-}
+void		  rtable_grow(unsigned int);
+struct rtable	 *rtable_entry(unsigned int);
+struct rtidx	 *rtable_get(unsigned int, sa_family_t);
 
 /*
- * Grow the size of the array of routing table for AF ``af'' to ``nlimit''.
+ * Grow the size of the array of routing tables to ``nlimit'' rounded up.
  */
 void
-rtmap_grow(unsigned int nlimit, sa_family_t af)
+rtable_grow(unsigned int nlimit)
 {
-	struct rtmap	*map, *nmap;
-	int		 i;
+	struct rtable	**omap, **nmap;
 
-	KERNEL_ASSERT_LOCKED();
+	rw_assert_wrlock(&rtable_lock);
 
-	KASSERT(nlimit > rtmap_limit);
+	nlimit = (nlimit + 15) & ~0xf; 
 
-	nmap = malloc(sizeof(*nmap), M_RTABLE, M_WAITOK);
-	nmap->limit = nlimit;
-	nmap->tbl = mallocarray(nlimit, sizeof(*nmap[0].tbl), M_RTABLE,
-	    M_WAITOK|M_ZERO);
+	KASSERT(nlimit > rtable_limit);
 
-	map = srp_get_locked(&afmap[af2idx[af]]);
-	if (map != NULL) {
-		KASSERT(map->limit == rtmap_limit);
-
-		for (i = 0; i < map->limit; i++)
-			nmap->tbl[i] = map->tbl[i];
-	}
-
-	srp_update_locked(&rtmap_gc, &afmap[af2idx[af]], nmap);
-}
-
-void
-rtmap_dtor(void *null, void *xmap)
-{
-	struct rtmap	*map = xmap;
-
-	/*
-	 * doesn't need to be serialized since this is the last reference
-	 * to this map. there's nothing to race against.
-	 */
-	free(map->tbl, M_RTABLE, map->limit * sizeof(*map[0].tbl));
-	free(map, M_RTABLE, sizeof(*map));
+	omap = SMR_PTR_GET_LOCKED(&rtables),
+	nmap = mallocarray(nlimit, sizeof(*nmap), M_RTABLE, M_WAITOK|M_ZERO);
+	memcpy(nmap, omap, rtable_limit * sizeof(*omap));
+	SMR_PTR_SET_LOCKED(&rtables, nmap);
+	if (omap != NULL)
+		smr_barrier();
+	free(omap, M_RTABLE, rtable_limit * sizeof(*omap));
+	membar_producer();	/* XXX */
+	rtable_limit = nlimit;
 }
 
 void
@@ -156,12 +107,6 @@ rtable_init(void)
 {
 	const struct domain	*dp;
 	int			 i;
-
-	KASSERT(sizeof(struct rtmap) == sizeof(struct dommp));
-
-	/* We use index 0 for the rtable/rdomain map. */
-	af2idx_max = 1;
-	memset(af2idx, 0, sizeof(af2idx));
 
 	/*
 	 * Compute the maximum supported key length in case the routing
@@ -171,18 +116,13 @@ rtable_init(void)
 		if (dp->dom_rtoffset == 0)
 			continue;
 
-		af2idx[dp->dom_family] = af2idx_max++;
+		af2idx[dp->dom_family] = ++af2idx_max;
 	}
-	rtable_init_backend();
 
-	/*
-	 * Allocate AF-to-id table now that we now how many AFs this
-	 * kernel supports.
-	 */
-	afmap = mallocarray(af2idx_max + 1, sizeof(*afmap), M_RTABLE,
-	    M_WAITOK|M_ZERO);
+	rtable_size = sizeof(struct rtable) +
+	    af2idx_max * sizeof(struct rtidx);
 
-	rtmap_init();
+	art_boot();
 
 	if (rtable_add(0) != 0)
 		panic("unable to create default routing table");
@@ -193,23 +133,26 @@ rtable_init(void)
 int
 rtable_add(unsigned int id)
 {
+	struct rtable		*rt = NULL;
 	const struct domain	*dp;
-	struct rtable		*tbl;
-	struct rtmap		*map;
-	struct dommp		*dmm;
 	sa_family_t		 af;
 	unsigned int		 off, alen;
 	int			 i, error = 0;
 
-	if (id > RT_TABLEID_MAX)
+	if (id >= USHRT_MAX)
+		return (EINVAL);
+	if (id > rt_tableid_max)
 		return (EINVAL);
 
-	KERNEL_LOCK();
+	rw_enter_write(&rtable_lock);
 
 	if (rtable_exists(id))
 		goto out;
 
+	rt = malloc(rtable_size, M_RTABLE, M_WAITOK|M_ZERO);
+
 	for (i = 0; (dp = domains[i]) != NULL; i++) {
+		struct rtidx *ri;
 		if (dp->dom_rtoffset == 0)
 			continue;
 
@@ -217,185 +160,218 @@ rtable_add(unsigned int id)
 		off = dp->dom_rtoffset;
 		alen = dp->dom_maxplen;
 
-		if (id >= rtmap_limit)
-			rtmap_grow(id + 1, af);
+		ri = &rt->rt_idx[af2idx[af] - 1];
 
-		tbl = rtable_alloc(id, alen, off);
-		if (tbl == NULL) {
+		ri->r_art = art_alloc(alen);
+		if (ri->r_art == NULL) {
 			error = ENOMEM;
 			goto out;
 		}
-
-		map = srp_get_locked(&afmap[af2idx[af]]);
-		map->tbl[id] = tbl;
+		rw_init(&ri->r_lock, "rtable");
+		ri->r_off = off;
 	}
 
 	/* Reflect possible growth. */
-	if (id >= rtmap_limit) {
-		rtmap_grow(id + 1, 0);
-		rtmap_limit = id + 1;
-	}
+	if (id >= rtable_limit)
+		rtable_grow(id + 1);
 
 	/* Use main rtable/rdomain by default. */
-	dmm = srp_get_locked(&afmap[0]);
-	dmm->value[id] = 0;
+	SMR_PTR_SET_LOCKED(&rtables[id], rt);
+	rt = NULL;
 out:
-	KERNEL_UNLOCK();
-
+	rw_exit_write(&rtable_lock);
+	if (rt != NULL)
+		free(rt, M_RTABLE, rtable_size);
 	return (error);
 }
 
 struct rtable *
+rtable_entry(unsigned int rtableid)
+{
+	struct rtable **r;
+
+	if (rtableid >= USHRT_MAX)
+		return (NULL);
+	if (rtableid >= READ_ONCE(rtable_limit))
+		return (NULL);
+	r = SMR_PTR_GET(&rtables);
+	return SMR_PTR_GET(&r[rtableid]);
+}
+
+/*
+ * rtables are immortal so it is save to return the rtidx pointer
+ * outside of the smr read critical section.
+ */
+struct rtidx *
 rtable_get(unsigned int rtableid, sa_family_t af)
 {
-	struct rtmap	*map;
-	struct rtable	*tbl = NULL;
-	struct srp_ref	 sr;
+	struct rtable	*rt;
+	struct rtidx	*ri = NULL;
 
 	if (af >= nitems(af2idx) || af2idx[af] == 0)
 		return (NULL);
-
-	map = srp_enter(&sr, &afmap[af2idx[af]]);
-	if (rtableid < map->limit)
-		tbl = map->tbl[rtableid];
-	srp_leave(&sr);
-
-	return (tbl);
+	smr_read_enter();
+	if ((rt = rtable_entry(rtableid)) != NULL)
+		ri = &rt->rt_idx[af2idx[af] - 1];
+	smr_read_leave();
+	return (ri);
 }
 
 int
 rtable_exists(unsigned int rtableid)
 {
-	const struct domain	*dp;
-	void			*tbl;
-	int			 i;
+	int rv;
 
-	for (i = 0; (dp = domains[i]) != NULL; i++) {
-		if (dp->dom_rtoffset == 0)
-			continue;
+	smr_read_enter();
+	rv = (rtable_entry(rtableid) != NULL);
+	smr_read_leave();
 
-		tbl = rtable_get(rtableid, dp->dom_family);
-		if (tbl != NULL)
-			return (1);
-	}
-
-	return (0);
+	return (rv);
 }
 
 int
 rtable_empty(unsigned int rtableid)
 {
-	const struct domain	*dp;
-	int			 i;
-	struct rtable		*tbl;
+	struct rtable	*rt;
+	struct rtidx	*ri;
+	int		 i, rv = 0;
 
-	for (i = 0; (dp = domains[i]) != NULL; i++) {
-		if (dp->dom_rtoffset == 0)
-			continue;
-
-		tbl = rtable_get(rtableid, dp->dom_family);
-		if (tbl == NULL)
-			continue;
-		if (!art_is_empty(tbl->r_art))
-			return (0);
+	smr_read_enter();
+	if ((rt = rtable_entry(rtableid)) != NULL) {
+		for (i = 0; i < af2idx_max; i++) {
+			ri = &rt->rt_idx[i];
+			if (!art_is_empty(ri->r_art))
+				break;
+		}
+		if (i == af2idx_max)
+			rv = 1;
 	}
+	smr_read_leave();
 
-	return (1);
+	return (rv);
 }
 
 unsigned int
 rtable_l2(unsigned int rtableid)
 {
-	struct dommp	*dmm;
-	unsigned int	 rdomain = 0;
-	struct srp_ref	 sr;
+	struct rtable *rt;
+	unsigned int rdomain = 0;
 
-	dmm = srp_enter(&sr, &afmap[0]);
-	if (rtableid < dmm->limit)
-		rdomain = (dmm->value[rtableid] & RT_TABLEID_MASK);
-	srp_leave(&sr);
-
+	smr_read_enter();
+	if ((rt = rtable_entry(rtableid)) != NULL)
+		rdomain = rt->rt_rdomain;
+	smr_read_leave();
 	return (rdomain);
 }
 
 unsigned int
 rtable_loindex(unsigned int rtableid)
 {
-	struct dommp	*dmm;
-	unsigned int	 loifidx = 0;
-	struct srp_ref	 sr;
+	struct rtable *rt;
+	unsigned int loifidx = 0;
 
-	dmm = srp_enter(&sr, &afmap[0]);
-	if (rtableid < dmm->limit)
-		loifidx = (dmm->value[rtableid] >> RT_TABLEID_BITS);
-	srp_leave(&sr);
-
+	smr_read_enter();
+	if ((rt = rtable_entry(rtableid)) != NULL)
+		loifidx = rt->rt_loifidx;
+	smr_read_leave();
 	return (loifidx);
+}
+
+struct ip_mrouter *
+rtable_get_mrouter(unsigned int rtableid)
+{
+	struct rtable *rt;
+
+	SMR_ASSERT_CRITICAL();
+
+	if ((rt = rtable_entry(rtableid)) == NULL)
+		return (NULL);
+	return (rt->rt_mrouter);
+}
+
+struct ip6_mrouter *
+rtable_get_mrouter6(unsigned int rtableid)
+{
+	struct rtable *rt;
+
+	SMR_ASSERT_CRITICAL();
+
+	if ((rt = rtable_entry(rtableid)) == NULL)
+		return (NULL);
+	return (rt->rt_mrouter6);
+}
+
+struct ip_mrouter *
+rtable_set_mrouter(unsigned int rtableid, struct ip_mrouter *new)
+{
+	struct ip_mrouter *old;
+	struct rtable *rt;
+
+	if ((rt = rtable_entry(rtableid)) == NULL)
+		return (NULL);
+	old = SMR_PTR_GET_LOCKED(&rt->rt_mrouter);
+	SMR_PTR_SET_LOCKED(&rt->rt_mrouter, new);
+
+	return (old);
+}
+
+struct ip6_mrouter *
+rtable_set_mrouter6(unsigned int rtableid, struct ip6_mrouter *new)
+{
+	struct ip6_mrouter *old;
+	struct rtable *rt;
+
+	if ((rt = rtable_entry(rtableid)) == NULL)
+		return (NULL);
+	old = SMR_PTR_GET_LOCKED(&rt->rt_mrouter6);
+	SMR_PTR_SET_LOCKED(&rt->rt_mrouter6, new);
+
+	return (old);
 }
 
 void
 rtable_l2set(unsigned int rtableid, unsigned int rdomain, unsigned int loifidx)
 {
-	struct dommp	*dmm;
-	unsigned int	 value;
+	struct rtable *rt;
+	struct ifnet *loifp;
 
 	KERNEL_ASSERT_LOCKED();
 
-	if (!rtable_exists(rtableid) || !rtable_exists(rdomain))
+	if ((rt = rtable_entry(rdomain)) == NULL)
+		panic("rdomain %d does not exist", rdomain);
+	if (rtableid != rdomain && rt->rt_rdomain != rdomain)
+		panic("routing table %d isn't a rdomain", rdomain);
+	if (loifidx != 0) {
+		loifp = if_get(loifidx);
+		if (loifp == NULL || loifp->if_rdomain != rdomain)
+			panic("bad loopback ifp for rdomain %d", rdomain);
+		if_put(loifp);
+	}
+	if ((rt = rtable_entry(rtableid)) == NULL)
 		return;
 
-	value = (rdomain & RT_TABLEID_MASK) | (loifidx << RT_TABLEID_BITS);
-
-	dmm = srp_get_locked(&afmap[0]);
-	dmm->value[rtableid] = value;
+	rt->rt_rdomain = rdomain;
+	rt->rt_loifidx = loifidx;
 }
 
 
-static inline const uint8_t *satoaddr(struct rtable *,
+static inline const uint8_t *satoaddr(struct rtidx *,
     const struct sockaddr *);
 
 void	rtable_mpath_insert(struct art_node *, struct rtentry *);
 
-void
-rtable_init_backend(void)
-{
-	art_boot();
-}
-
-struct rtable *
-rtable_alloc(unsigned int rtableid, unsigned int alen, unsigned int off)
-{
-	struct rtable *tbl;
-
-	tbl = malloc(sizeof(*tbl), M_RTABLE, M_NOWAIT|M_ZERO);
-	if (tbl == NULL)
-		return (NULL);
-
-	tbl->r_art = art_alloc(alen);
-	if (tbl->r_art == NULL) {
-		free(tbl, M_RTABLE, sizeof(*tbl));
-		return (NULL);
-	}
-
-	rw_init(&tbl->r_lock, "rtable");
-	tbl->r_off = off;
-	tbl->r_source = NULL;
-
-	return (tbl);
-}
-
 int
 rtable_setsource(unsigned int rtableid, int af, struct sockaddr *src)
 {
-	struct rtable		*tbl;
+	struct rtidx *ri;
 
 	NET_ASSERT_LOCKED_EXCLUSIVE();
 
-	tbl = rtable_get(rtableid, af);
-	if (tbl == NULL)
+	ri = rtable_get(rtableid, af);
+	if (ri == NULL)
 		return (EAFNOSUPPORT);
 
-	tbl->r_source = src;
+	ri->r_source = src;
 
 	return (0);
 }
@@ -403,15 +379,15 @@ rtable_setsource(unsigned int rtableid, int af, struct sockaddr *src)
 struct sockaddr *
 rtable_getsource(unsigned int rtableid, int af)
 {
-	struct rtable		*tbl;
+	struct rtidx *ri;
 
 	NET_ASSERT_LOCKED();
 
-	tbl = rtable_get(rtableid, af);
-	if (tbl == NULL)
+	ri = rtable_get(rtableid, af);
+	if (ri == NULL)
 		return (NULL);
 
-	return (tbl->r_source);
+	return (ri->r_source);
 }
 
 void
@@ -431,28 +407,28 @@ struct rtentry *
 rtable_lookup(unsigned int rtableid, const struct sockaddr *dst,
     const struct sockaddr *mask, const struct sockaddr *gateway, uint8_t prio)
 {
-	struct rtable			*tbl;
+	struct rtidx			*ri;
 	struct art_node			*an;
 	struct rtentry			*rt = NULL;
 	const uint8_t			*addr;
 	int				 plen;
 
-	tbl = rtable_get(rtableid, dst->sa_family);
-	if (tbl == NULL)
+	ri = rtable_get(rtableid, dst->sa_family);
+	if (ri == NULL)
 		return (NULL);
 
-	addr = satoaddr(tbl, dst);
+	addr = satoaddr(ri, dst);
 
 	smr_read_enter();
 	if (mask == NULL) {
 		/* No need for a perfect match. */
-		an = art_match(tbl->r_art, addr);
+		an = art_match(ri->r_art, addr);
 	} else {
 		plen = rtable_satoplen(dst->sa_family, mask);
 		if (plen == -1)
 			goto out;
 
-		an = art_lookup(tbl->r_art, addr, plen);
+		an = art_lookup(ri->r_art, addr, plen);
 	}
 	if (an == NULL)
 		goto out;
@@ -482,21 +458,21 @@ out:
 struct rtentry *
 rtable_match(unsigned int rtableid, const struct sockaddr *dst, uint32_t *src)
 {
-	struct rtable			*tbl;
+	struct rtidx			*ri;
 	struct art_node			*an;
 	struct rtentry			*rt = NULL;
 	const uint8_t			*addr;
 	int				 hash;
 	uint8_t				 prio;
 
-	tbl = rtable_get(rtableid, dst->sa_family);
-	if (tbl == NULL)
+	ri = rtable_get(rtableid, dst->sa_family);
+	if (ri == NULL)
 		return (NULL);
 
-	addr = satoaddr(tbl, dst);
+	addr = satoaddr(ri, dst);
 
 	smr_read_enter();
-	an = art_match(tbl->r_art, addr);
+	an = art_match(ri->r_art, addr);
 	if (an == NULL)
 		goto out;
 
@@ -549,18 +525,18 @@ rtable_insert(unsigned int rtableid, struct sockaddr *dst,
     const struct sockaddr *mask, const struct sockaddr *gateway, uint8_t prio,
     struct rtentry *rt)
 {
-	struct rtable			*tbl;
+	struct rtidx			*ri;
 	struct art_node			*an, *prev;
 	const uint8_t			*addr;
 	int				 plen;
 	unsigned int			 rt_flags;
 	int				 error = 0;
 
-	tbl = rtable_get(rtableid, dst->sa_family);
-	if (tbl == NULL)
+	ri = rtable_get(rtableid, dst->sa_family);
+	if (ri == NULL)
 		return (EAFNOSUPPORT);
 
-	addr = satoaddr(tbl, dst);
+	addr = satoaddr(ri, dst);
 	plen = rtable_satoplen(dst->sa_family, mask);
 	if (plen == -1)
 		return (EINVAL);
@@ -579,8 +555,8 @@ rtable_insert(unsigned int rtableid, struct sockaddr *dst,
 	rtref(rt); /* take a ref for the table */
 	an->an_value = rt;
 
-	rw_enter_write(&tbl->r_lock);
-	prev = art_insert(tbl->r_art, an);
+	rw_enter_write(&ri->r_lock);
+	prev = art_insert(ri->r_art, an);
 	if (prev == NULL) {
 		error = ENOMEM;
 		goto put;
@@ -634,13 +610,13 @@ rtable_insert(unsigned int rtableid, struct sockaddr *dst,
 		/* Put newly inserted entry at the right place. */
 		rtable_mpath_insert(an, rt);
 	}
-	rw_exit_write(&tbl->r_lock);
+	rw_exit_write(&ri->r_lock);
 	return (error);
 
 put:
 	art_put(an);
 leave:
-	rw_exit_write(&tbl->r_lock);
+	rw_exit_write(&ri->r_lock);
 	rtfree(rt);
 	return (error);
 }
@@ -649,27 +625,27 @@ int
 rtable_delete(unsigned int rtableid, const struct sockaddr *dst,
     const struct sockaddr *mask, struct rtentry *rt)
 {
-	struct rtable			*tbl;
+	struct rtidx			*ri;
 	struct art_node			*an;
 	const uint8_t			*addr;
 	int				 plen;
 	struct rtentry			*mrt;
 
-	tbl = rtable_get(rtableid, dst->sa_family);
-	if (tbl == NULL)
+	ri = rtable_get(rtableid, dst->sa_family);
+	if (ri == NULL)
 		return (EAFNOSUPPORT);
 
-	addr = satoaddr(tbl, dst);
+	addr = satoaddr(ri, dst);
 	plen = rtable_satoplen(dst->sa_family, mask);
 	if (plen == -1)
 		return (EINVAL);
 
-	rw_enter_write(&tbl->r_lock);
+	rw_enter_write(&ri->r_lock);
 	smr_read_enter();
-	an = art_lookup(tbl->r_art, addr, plen);
+	an = art_lookup(ri->r_art, addr, plen);
 	smr_read_leave();
 	if (an == NULL) {
-		rw_exit_write(&tbl->r_lock);
+		rw_exit_write(&ri->r_lock);
 		return (ESRCH);
 	}
 
@@ -677,9 +653,9 @@ rtable_delete(unsigned int rtableid, const struct sockaddr *dst,
 	if (SMR_PTR_GET_LOCKED(&an->an_value) == rt &&
 	    SMR_PTR_GET_LOCKED(&rt->rt_next) == NULL) {
 		struct art_node *oan;
-		oan = art_delete(tbl->r_art, addr, plen);
+		oan = art_delete(ri->r_art, addr, plen);
 		if (oan != an)
-			panic("art %p changed shape during delete", tbl->r_art);
+			panic("art %p changed shape during delete", ri->r_art);
 		art_put(an);
 		/*
 		 * XXX an and the rt ref could still be alive on other cpus.
@@ -716,7 +692,7 @@ rtable_delete(unsigned int rtableid, const struct sockaddr *dst,
 			CLR(nrt->rt_flags, RTF_MPATH);
 	}
 	KASSERT(refcnt_read(&rt->rt_refcnt) >= 1);
-	rw_exit_write(&tbl->r_lock);
+	rw_exit_write(&ri->r_lock);
 	rtfree(rt);
 
 	return (0);
@@ -726,17 +702,17 @@ int
 rtable_walk(unsigned int rtableid, sa_family_t af, struct rtentry **prt,
     int (*func)(struct rtentry *, void *, unsigned int), void *arg)
 {
-	struct rtable			*tbl;
+	struct rtidx			*ri;
 	struct art_iter			 ai;
 	struct art_node			*an;
 	int				 error = 0;
 
-	tbl = rtable_get(rtableid, af);
-	if (tbl == NULL)
+	ri = rtable_get(rtableid, af);
+	if (ri == NULL)
 		return (EAFNOSUPPORT);
 
-	rw_enter_write(&tbl->r_lock);
-	ART_FOREACH(an, tbl->r_art, &ai) {
+	rw_enter_write(&ri->r_lock);
+	ART_FOREACH(an, ri->r_art, &ai) {
 		/*
 		 * ART nodes have a list of rtentries.
 		 *
@@ -746,7 +722,7 @@ rtable_walk(unsigned int rtableid, sa_family_t af, struct rtentry **prt,
 		struct rtentry *rt = SMR_PTR_GET_LOCKED(&an->an_value);
 		rtref(rt);
 
-		rw_exit_write(&tbl->r_lock);
+		rw_exit_write(&ri->r_lock);
 		do {
 			struct rtentry *nrt;
 
@@ -767,18 +743,18 @@ rtable_walk(unsigned int rtableid, sa_family_t af, struct rtentry **prt,
 				if (nrt != NULL)
 					rtfree(nrt);
 
-				rw_enter_write(&tbl->r_lock);
+				rw_enter_write(&ri->r_lock);
 				art_iter_close(&ai);
-				rw_exit_write(&tbl->r_lock);
+				rw_exit_write(&ri->r_lock);
 				return (error);
 			}
 
 			rtfree(rt);
 			rt = nrt;
 		} while (rt != NULL);
-		rw_enter_write(&tbl->r_lock);
+		rw_enter_write(&ri->r_lock);
 	}
-	rw_exit_write(&tbl->r_lock);
+	rw_exit_write(&ri->r_lock);
 
 	return (error);
 }
@@ -787,17 +763,17 @@ int
 rtable_read(unsigned int rtableid, sa_family_t af,
     int (*func)(const struct rtentry *, void *, unsigned int), void *arg)
 {
-	struct rtable			*tbl;
+	struct rtidx			*ri;
 	struct art_iter			 ai;
 	struct art_node			*an;
 	int				 error = 0;
 
-	tbl = rtable_get(rtableid, af);
-	if (tbl == NULL)
+	ri = rtable_get(rtableid, af);
+	if (ri == NULL)
 		return (EAFNOSUPPORT);
 
-	rw_enter_write(&tbl->r_lock);
-	ART_FOREACH(an, tbl->r_art, &ai) {
+	rw_enter_write(&ri->r_lock);
+	ART_FOREACH(an, ri->r_art, &ai) {
 		struct rtentry *rt;
 		for (rt = SMR_PTR_GET_LOCKED(&an->an_value); rt != NULL;
 		    rt = SMR_PTR_GET_LOCKED(&rt->rt_next)) {
@@ -809,7 +785,7 @@ rtable_read(unsigned int rtableid, sa_family_t af,
 		}
 	}
 leave:
-	rw_exit_write(&tbl->r_lock);
+	rw_exit_write(&ri->r_lock);
 
 	return (error);
 }
@@ -831,6 +807,8 @@ rtable_iterate(struct rtentry *rt0)
 int
 rtable_mpath_capable(unsigned int rtableid, sa_family_t af)
 {
+	if (af == AF_MPLS)
+		return (0);
 	return (1);
 }
 
@@ -838,20 +816,20 @@ int
 rtable_mpath_reprio(unsigned int rtableid, struct sockaddr *dst,
     int plen, uint8_t prio, struct rtentry *rt)
 {
-	struct rtable			*tbl;
+	struct rtidx			*ri;
 	struct art_node			*an;
 	const uint8_t			*addr;
 	int				 error = 0;
 
-	tbl = rtable_get(rtableid, dst->sa_family);
-	if (tbl == NULL)
+	ri = rtable_get(rtableid, dst->sa_family);
+	if (ri == NULL)
 		return (EAFNOSUPPORT);
 
-	addr = satoaddr(tbl, dst);
+	addr = satoaddr(ri, dst);
 
-	rw_enter_write(&tbl->r_lock);
+	rw_enter_write(&ri->r_lock);
 	smr_read_enter();
-	an = art_lookup(tbl->r_art, addr, plen);
+	an = art_lookup(ri->r_art, addr, plen);
 	smr_read_leave();
 	if (an == NULL) {
 		error = ESRCH;
@@ -881,7 +859,7 @@ rtable_mpath_reprio(unsigned int rtableid, struct sockaddr *dst,
 		rtable_mpath_insert(an, rt);
 		error = EAGAIN;
 	}
-	rw_exit_write(&tbl->r_lock);
+	rw_exit_write(&ri->r_lock);
 
 	return (error);
 }
@@ -912,9 +890,9 @@ rtable_mpath_insert(struct art_node *an, struct rtentry *rt)
  * of "struct sockaddr" used by this routing table.
  */
 static inline const uint8_t *
-satoaddr(struct rtable *tbl, const struct sockaddr *sa)
+satoaddr(struct rtidx *ri, const struct sockaddr *sa)
 {
-	return (((const uint8_t *)sa) + tbl->r_off);
+	return (((const uint8_t *)sa) + ri->r_off);
 }
 
 /*
