@@ -4260,7 +4260,8 @@ sppp_update_gw(struct ifnet *ifp)
 
 	/* update routing table */
 	for (tid = 0; tid <= rt_tableid_max; tid++) {
-		if (ifp->if_rdomain != rtable_l2(tid))
+		if (!rtable_exists(tid) ||
+		    rtable_l2(tid) != ifp->if_rdomain)
 			continue;
 		rtable_walk(tid, AF_INET, NULL, sppp_update_gw_walker, ifp);
 	}
