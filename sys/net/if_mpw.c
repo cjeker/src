@@ -464,7 +464,6 @@ mpw_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 
 	case SIOCSLIFPHYRTABLE:
 		if (ifr->ifr_rdomainid < 0 ||
-		    ifr->ifr_rdomainid > RT_TABLEID_MAX ||
 		    !rtable_exists(ifr->ifr_rdomainid) ||
 		    ifr->ifr_rdomainid != rtable_l2(ifr->ifr_rdomainid)) {
 			error = EINVAL;

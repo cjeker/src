@@ -1289,8 +1289,7 @@ vxlan_set_rdomain(struct vxlan_softc *sc, const struct ifreq *ifr)
 {
 	struct ifnet *ifp = &sc->sc_ac.ac_if;
 
-	if (ifr->ifr_rdomainid < 0 ||
-	    ifr->ifr_rdomainid > RT_TABLEID_MAX)
+	if (ifr->ifr_rdomainid < 0)
 		return (EINVAL);
 	if (!rtable_exists(ifr->ifr_rdomainid))
 		return (EADDRNOTAVAIL);

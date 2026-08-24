@@ -148,7 +148,7 @@
 /* Give some jitter to hash, to avoid synchronization between routers. */
 static uint32_t		rt_hashjitter;
 
-extern unsigned int	rtmap_limit;
+extern unsigned int	rtable_limit;
 
 struct cpumem	*rtcounters;
 int		 rttrash;	/* [a] routes not in table but not freed */
@@ -1464,7 +1464,7 @@ rt_ifa_purge(struct ifaddr *ifa)
 
 	KASSERT(ifp != NULL);
 
-	for (rtableid = 0; rtableid < rtmap_limit; rtableid++) {
+	for (rtableid = 0; rtableid < rtable_limit; rtableid++) {
 		/* skip rtables that are not in the rdomain of the ifp */
 		if (rtable_l2(rtableid) != ifp->if_rdomain)
 			continue;
@@ -1886,7 +1886,7 @@ rt_if_track(struct ifnet *ifp)
 	struct rtentry *rt = NULL;
 	int i, error = 0;
 
-	for (rtableid = 0; rtableid < rtmap_limit; rtableid++) {
+	for (rtableid = 0; rtableid < rtable_limit; rtableid++) {
 		/* skip rtables that are not in the rdomain of the ifp */
 		if (rtable_l2(rtableid) != ifp->if_rdomain)
 			continue;

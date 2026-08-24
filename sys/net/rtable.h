@@ -21,22 +21,6 @@
 
 #include <sys/rwlock.h>
 
-struct art;
-
-/*
- *  Locks used to protect struct members in this file:
- *	I	immutable after creation
- *	N	net lock
- */
-
-struct rtable {
-	struct rwlock		 r_lock;
-	struct art		*r_art;		/* [I] */
-	unsigned int		 r_off;		/* [I] Offset of key in bytes */
-
-	struct sockaddr		*r_source;	/* [N] use optional src addr */
-};
-
 /*
  * Newer routing table implementation based on ART (Allotment Routing
  * Table).
@@ -46,6 +30,9 @@ struct rtable {
 #define	rt_plen(rt)	((rt)->rt_plen)
 #define	RT_ROOT(rt)	(0)
 
+struct ip_mrouter;
+struct ip6_mrouter;
+
 int		 rtable_satoplen(sa_family_t, const struct sockaddr *);
 
 void		 rtable_init(void);
@@ -54,6 +41,10 @@ int		 rtable_empty(unsigned int);
 int		 rtable_add(unsigned int);
 unsigned int	 rtable_l2(unsigned int);
 unsigned int	 rtable_loindex(unsigned int);
+struct ip_mrouter	*rtable_get_mrouter(unsigned int);
+struct ip6_mrouter	*rtable_get_mrouter6(unsigned int);
+struct ip_mrouter	*rtable_set_mrouter(unsigned int, struct ip_mrouter *);
+struct ip6_mrouter	*rtable_set_mrouter6(unsigned int, struct ip6_mrouter*);
 void		 rtable_l2set(unsigned int, unsigned int, unsigned int);
 
 int		 rtable_setsource(unsigned int, int, struct sockaddr *);
