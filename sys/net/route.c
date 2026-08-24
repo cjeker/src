@@ -1462,9 +1462,9 @@ rt_ifa_purge(struct ifaddr *ifa)
 
 	KASSERT(ifp != NULL);
 
-	for (rtableid = 0; rtableid < rt_tableid_max; rtableid++) {
+	for (rtableid = 0; rtableid <= rt_tableid_max; rtableid++) {
 		/* skip rtables that are not in the rdomain of the ifp */
-		if (rtable_exists(rtableid) &&
+		if (!rtable_exists(rtableid) ||
 		    rtable_l2(rtableid) != ifp->if_rdomain)
 			continue;
 
@@ -1885,9 +1885,9 @@ rt_if_track(struct ifnet *ifp)
 	struct rtentry *rt = NULL;
 	int i, error = 0;
 
-	for (rtableid = 0; rtableid < rt_tableid_max; rtableid++) {
+	for (rtableid = 0; rtableid <= rt_tableid_max; rtableid++) {
 		/* skip rtables that are not in the rdomain of the ifp */
-		if (rtable_exists(rtableid) &&
+		if (!rtable_exists(rtableid) ||
 		    rtable_l2(rtableid) != ifp->if_rdomain)
 			continue;
 		for (i = 1; i <= AF_MAX; i++) {
