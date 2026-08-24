@@ -197,6 +197,12 @@ art_alloc(unsigned int alen)
 	return (art);
 }
 
+void
+art_free(struct art *art)
+{
+	free(art, M_RTABLE, sizeof(*art));
+}
+
 /*
  * Return the base index of the part of ``addr'' and ``plen''
  * corresponding to the range covered by the table ``at''.

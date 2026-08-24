@@ -133,6 +133,7 @@ art_heap_to_heap_entry(art_heap_entry *heap)
 #ifdef _KERNEL
 void		 art_boot(void);
 struct art	*art_alloc(unsigned int);
+void		 art_free(struct art *);
 void		 art_init(struct art *, unsigned int);
 struct art_node *art_insert(struct art *, struct art_node *);
 struct art_node *art_delete(struct art *, const void *, unsigned int);
