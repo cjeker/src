@@ -48,6 +48,7 @@ int rt_tableid_max = 255;
  *	K	kernel lock
  *	N	net lock
  *	S	SMR pointer
+ *	X	only adjusted when table is empty and no longer unused
  */
 struct rtidx {
 	struct rwlock	 r_lock;
@@ -57,8 +58,8 @@ struct rtidx {
 };
 
 struct rtable {
-	unsigned int		 rt_rdomain;	/* [I] */
-	unsigned int		 rt_loifidx;	/* [I] */
+	unsigned int		 rt_rdomain;	/* [X] */
+	unsigned int		 rt_loifidx;	/* [X] */
 	struct ip_mrouter	*rt_mrouter;	/* [S] */
 	struct ip6_mrouter	*rt_mrouter6;	/* [S] */
 
@@ -175,13 +176,22 @@ rtable_add(unsigned int id)
 	if (id >= rtable_limit)
 		rtable_grow(id + 1);
 
-	/* Use main rtable/rdomain by default. */
+	/* Use primary rdomain by default. */
+	rt->rt_rdomain = 0;
+
 	SMR_PTR_SET_LOCKED(&rtables[id], rt);
 	rt = NULL;
 out:
 	rw_exit_write(&rtable_lock);
-	if (rt != NULL)
+	if (rt != NULL) {
+		for (i = 0; i < af2idx_max; i++) {
+			struct rtidx *ri;
+
+			ri = &rt->rt_idx[i];
+			free(ri->r_art, sizeof(ri->r_art));
+		}
 		free(rt, M_RTABLE, rtable_size);
+	}
 	return (error);
 }
 
