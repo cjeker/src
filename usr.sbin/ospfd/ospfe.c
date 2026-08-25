@@ -46,6 +46,8 @@ void		 ospfe_sig_handler(int, short, void *);
 __dead void	 ospfe_shutdown(void);
 void		 orig_rtr_lsa_all(struct area *);
 struct iface	*find_vlink(struct abr_rtr *);
+void		 ospfe_dispatch_main(struct imsg *, void *);
+void		 ospfe_dispatch_rde(struct imsg *, void *);
 
 struct ospfd_conf	*oeconf = NULL, *noeconf;
 static struct imsgbuf	*imsg_main;
@@ -153,9 +155,9 @@ ospfe(struct ospfd_conf *xconf, int pipe_parent2ospfe[2], int pipe_ospfe2rde[2],
 	close(pipe_parent2rde[1]);
 
 	if ((imsg_rde = imsgev_new(pipe_ospfe2rde[0],
-	    ospfe_dispatch_rde)) == NULL ||
+	    ospfe_dispatch_rde, ospfd_dispatch_error, NULL)) == NULL ||
 	    (imsg_main = imsgev_new(pipe_parent2ospfe[1],
-	    ospfe_dispatch_main)) == NULL)
+	    ospfe_dispatch_main, ospfd_dispatch_error, NULL)) == NULL)
 		fatal(NULL);
 	imsgbuf_allow_fdpass(imsg_main);
 
@@ -239,538 +241,475 @@ ospfe_imsg_compose_rde(int type, u_int32_t peerid, pid_t pid,
 	return (imsg_compose(imsg_rde, type, peerid, pid, -1, data, datalen));
 }
 
+int
+ospfe_imsg_forward_parent(struct imsg *imsg)
+{
+	return (imsg_forward(imsg_main, imsg));
+}
+
+int
+ospfe_imsg_forward_rde(struct imsg *imsg)
+{
+	return (imsg_forward(imsg_rde, imsg));
+}
+
 void
-ospfe_dispatch_main(int fd, short event, void *arg)
+ospfe_dispatch_main(struct imsg *imsg, void *arg)
 {
 	static struct area	*narea;
 	static struct iface	*niface;
-	struct ifaddrchange	*ifc;
-	struct imsg	 imsg;
-	struct imsgbuf	*ibuf = arg;
+	struct ifaddrchange	 ifc;
 	struct area	*area = NULL;
 	struct iface	*iface = NULL;
-	struct kif	*kif;
+	struct kif	 kif;
 	struct auth_md	 md;
-	int		 n, link_ok, stub_changed, shut = 0;
+	uint32_t	 type;
+	int		 fd, link_ok, stub_changed;
 
-	if (event & EV_READ) {
-		if ((n = imsgbuf_read(ibuf)) == -1)
-			fatal("imsgbuf_read error");
-		if (n == 0)	/* connection closed */
-			shut = 1;
-	}
-	if (event & EV_WRITE) {
-		if (imsgbuf_write(ibuf) == -1) {
-			if (errno == EPIPE)	/* connection closed */
-				shut = 1;
-			else
-				fatal("imsgbuf_write");
-		}
-	}
+	type = imsg_get_type(imsg);
+	switch (type) {
+	case IMSG_IFINFO:
+		if (imsg_get_data(imsg, &kif, sizeof(kif)) == -1)
+			fatalx("bad IFINFO imsg received");
+		link_ok = (kif.flags & IFF_UP) &&
+		    LINK_STATE_IS_UP(kif.link_state);
 
-	for (;;) {
-		if ((n = imsgbuf_get(ibuf, &imsg)) == -1)
-			fatal("ospfe_dispatch_main: imsgbuf_get error");
-		if (n == 0)
-			break;
+		LIST_FOREACH(area, &oeconf->area_list, entry) {
+			LIST_FOREACH(iface, &area->iface_list, entry) {
+				if (kif.ifindex == iface->ifindex &&
+				    iface->type != IF_TYPE_VIRTUALLINK) {
+					int prev_link_state =
+					    (iface->flags & IFF_UP) &&
+					    LINK_STATE_IS_UP(iface->linkstate);
 
-		switch (imsg.hdr.type) {
-		case IMSG_IFINFO:
-			if (imsg.hdr.len != IMSG_HEADER_SIZE +
-			    sizeof(struct kif))
-				fatalx("IFINFO imsg with wrong len");
-			kif = imsg.data;
-			link_ok = (kif->flags & IFF_UP) &&
-			    LINK_STATE_IS_UP(kif->link_state);
+					iface->flags = kif.flags;
+					iface->linkstate = kif.link_state;
+					iface->mtu = kif.mtu;
 
-			LIST_FOREACH(area, &oeconf->area_list, entry) {
-				LIST_FOREACH(iface, &area->iface_list, entry) {
-					if (kif->ifindex == iface->ifindex &&
-					    iface->type !=
-					    IF_TYPE_VIRTUALLINK) {
-						int prev_link_state =
-						    (iface->flags & IFF_UP) &&
-						    LINK_STATE_IS_UP(iface->linkstate);
+					if (link_ok == prev_link_state)
+						break;
 
-						iface->flags = kif->flags;
-						iface->linkstate =
-						    kif->link_state;
-						iface->mtu = kif->mtu;
-
-						if (link_ok == prev_link_state)
-							break;
-
-						if (link_ok) {
-							if_fsm(iface,
-							    IF_EVT_UP);
-							log_warnx("interface %s"
-							    " up", iface->name);
-						} else {
-							if_fsm(iface,
-							    IF_EVT_DOWN);
-							log_warnx("interface %s"
-							    " down",
-							    iface->name);
-						}
-					}
-					if (strcmp(kif->ifname,
-					    iface->dependon) == 0) {
-						log_warnx("interface %s"
-						    " changed state, %s"
-						    " depends on it",
-						    kif->ifname,
-						    iface->name);
-						iface->depend_ok =
-						    ifstate_is_up(kif);
-
-						if ((iface->flags &
-						    IFF_UP) &&
-						    LINK_STATE_IS_UP(iface->linkstate))
-							orig_rtr_lsa(iface->area);
-					}
-				}
-			}
-			break;
-		case IMSG_IFADDRADD:
-			if (imsg.hdr.len != IMSG_HEADER_SIZE +
-			    sizeof(struct ifaddrchange))
-				fatalx("IFADDRADD imsg with wrong len");
-			ifc = imsg.data;
-
-			LIST_FOREACH(area, &oeconf->area_list, entry) {
-				LIST_FOREACH(iface, &area->iface_list, entry) {
-					if (ifc->ifindex == iface->ifindex &&
-					    ifc->addr.s_addr ==
-					    iface->addr.s_addr) {
-						iface->mask = ifc->mask;
-						iface->dst = ifc->dst;
-						/*
-						 * Previous down event might
-						 * have failed if the address
-						 * was not present at that
-						 * time.
-						 */
-						if_fsm(iface, IF_EVT_DOWN);
+					if (link_ok) {
 						if_fsm(iface, IF_EVT_UP);
-						log_warnx("interface %s:%s "
-						    "returned", iface->name,
-						    inet_ntoa(iface->addr));
-						break;
-					}
-				}
-			}
-			break;
-		case IMSG_IFADDRDEL:
-			if (imsg.hdr.len != IMSG_HEADER_SIZE +
-			    sizeof(struct ifaddrchange))
-				fatalx("IFADDRDEL imsg with wrong len");
-			ifc = imsg.data;
-
-			LIST_FOREACH(area, &oeconf->area_list, entry) {
-				LIST_FOREACH(iface, &area->iface_list, entry) {
-					if (ifc->ifindex == iface->ifindex &&
-					    ifc->addr.s_addr ==
-					    iface->addr.s_addr) {
+						log_warnx("interface %s up",
+						    iface->name);
+					} else {
 						if_fsm(iface, IF_EVT_DOWN);
-						log_warnx("interface %s:%s "
-						    "gone", iface->name,
-						    inet_ntoa(iface->addr));
-						break;
+						log_warnx("interface %s down",
+						    iface->name);
 					}
 				}
+				kif.ifname[sizeof(kif.ifname) - 1] = '\0';
+				if (strcmp(kif.ifname, iface->dependon) == 0) {
+					log_warnx("interface %s changed state, "
+					    " %s depends on it", kif.ifname,
+					    iface->name);
+					iface->depend_ok = ifstate_is_up(&kif);
+
+					if ((iface->flags & IFF_UP) &&
+					    LINK_STATE_IS_UP(iface->linkstate))
+						orig_rtr_lsa(iface->area);
+				}
 			}
-			break;
-		case IMSG_RECONF_CONF:
-			if ((noeconf = malloc(sizeof(struct ospfd_conf))) ==
-			    NULL)
-				fatal(NULL);
-			memcpy(noeconf, imsg.data, sizeof(struct ospfd_conf));
-
-			LIST_INIT(&noeconf->area_list);
-			LIST_INIT(&noeconf->cand_list);
-			break;
-		case IMSG_RECONF_AREA:
-			if ((narea = area_new()) == NULL)
-				fatal(NULL);
-			memcpy(narea, imsg.data, sizeof(struct area));
-
-			LIST_INIT(&narea->iface_list);
-			LIST_INIT(&narea->nbr_list);
-			RB_INIT(&narea->lsa_tree);
-			SIMPLEQ_INIT(&narea->redist_list);
-
-			LIST_INSERT_HEAD(&noeconf->area_list, narea, entry);
-			break;
-		case IMSG_RECONF_IFACE:
-			if ((niface = malloc(sizeof(struct iface))) == NULL)
-				fatal(NULL);
-			memcpy(niface, imsg.data, sizeof(struct iface));
-
-			LIST_INIT(&niface->nbr_list);
-			TAILQ_INIT(&niface->ls_ack_list);
-			TAILQ_INIT(&niface->auth_md_list);
-			RB_INIT(&niface->lsa_tree);
-
-			niface->area = narea;
-			LIST_INSERT_HEAD(&narea->iface_list, niface, entry);
-			break;
-		case IMSG_RECONF_AUTHMD:
-			if (imsg_get_data(&imsg, md.key, sizeof(md.key)) == -1)
-				fatalx(
-				    "%s IMSG_RECONF_AUTHMD could not get key",
-				    __func__);
-			md.keyid = imsg_get_id(&imsg);
-			md_list_add(&niface->auth_md_list,
-			    md.keyid, md.key);
-			break;
-		case IMSG_RECONF_END:
-			if ((oeconf->flags & OSPFD_FLAG_STUB_ROUTER) !=
-			    (noeconf->flags & OSPFD_FLAG_STUB_ROUTER))
-				stub_changed = 1;
-			else
-				stub_changed = 0;
-			merge_config(oeconf, noeconf);
-			noeconf = NULL;
-			if (stub_changed)
-				orig_rtr_lsa_all(NULL);
-			break;
-		case IMSG_CTL_KROUTE:
-		case IMSG_CTL_KROUTE_ADDR:
-		case IMSG_CTL_IFINFO:
-		case IMSG_CTL_END:
-			control_imsg_relay(&imsg);
-			break;
-		case IMSG_CONTROLFD:
-			if ((fd = imsg_get_fd(&imsg)) == -1)
-				fatalx("%s: expected to receive imsg control"
-				    "fd but didn't receive any", __func__);
-			/* Listen on control socket. */
-			control_listen(fd);
-			if (pledge("stdio inet mcast", NULL) == -1)
-				fatal("pledge");
-			break;
-		default:
-			log_debug("ospfe_dispatch_main: error handling imsg %d",
-			    imsg.hdr.type);
-			break;
 		}
-		imsg_free(&imsg);
-	}
-	if (!shut)
-		imsg_event_add(ibuf, imsgbuf_get_userdata(ibuf));
-	else {
-		/* this pipe is dead, exit asap */
-		event_loopexit(NULL);
+		break;
+	case IMSG_IFADDRADD:
+		if (imsg_get_data(imsg, &ifc, sizeof(ifc)) == -1)
+			fatalx("bad IFADDRADD imsg received");
+
+		LIST_FOREACH(area, &oeconf->area_list, entry) {
+			LIST_FOREACH(iface, &area->iface_list, entry) {
+				if (ifc.ifindex == iface->ifindex &&
+				    ifc.addr.s_addr == iface->addr.s_addr) {
+					iface->mask = ifc.mask;
+					iface->dst = ifc.dst;
+					/*
+					 * Previous down event might
+					 * have failed if the address
+					 * was not present at that
+					 * time.
+					 */
+					if_fsm(iface, IF_EVT_DOWN);
+					if_fsm(iface, IF_EVT_UP);
+					log_warnx("interface %s:%s "
+					    "returned", iface->name,
+					    inet_ntoa(iface->addr));
+					break;
+				}
+			}
+		}
+		break;
+	case IMSG_IFADDRDEL:
+		if (imsg_get_data(imsg, &ifc, sizeof(ifc)) == -1)
+			fatalx("bad IFADDRADD imsg received");
+
+		LIST_FOREACH(area, &oeconf->area_list, entry) {
+			LIST_FOREACH(iface, &area->iface_list, entry) {
+				if (ifc.ifindex == iface->ifindex &&
+				    ifc.addr.s_addr == iface->addr.s_addr) {
+					if_fsm(iface, IF_EVT_DOWN);
+					log_warnx("interface %s:%s "
+					    "gone", iface->name,
+					    inet_ntoa(iface->addr));
+					break;
+				}
+			}
+		}
+		break;
+	case IMSG_RECONF_CONF:
+		if ((noeconf = malloc(sizeof(*noeconf))) == NULL)
+			fatal(NULL);
+		if (imsg_get_data(imsg, noeconf, sizeof(*noeconf)) == -1)
+			fatalx("bad RECONF_CONF imsg received");
+
+		LIST_INIT(&noeconf->area_list);
+		LIST_INIT(&noeconf->cand_list);
+		break;
+	case IMSG_RECONF_AREA:
+		if ((narea = area_new()) == NULL)
+			fatal(NULL);
+		if (imsg_get_data(imsg, narea, sizeof(*narea)) == -1)
+			fatalx("bad RECONF_AREA imsg received");
+
+		LIST_INIT(&narea->iface_list);
+		LIST_INIT(&narea->nbr_list);
+		RB_INIT(&narea->lsa_tree);
+		SIMPLEQ_INIT(&narea->redist_list);
+
+		LIST_INSERT_HEAD(&noeconf->area_list, narea, entry);
+		break;
+	case IMSG_RECONF_IFACE:
+		if ((niface = malloc(sizeof(*niface))) == NULL)
+			fatal(NULL);
+		if (imsg_get_data(imsg, niface, sizeof(*niface)) == -1)
+			fatalx("bad RECONF_IFACE imsg received");
+
+		LIST_INIT(&niface->nbr_list);
+		TAILQ_INIT(&niface->ls_ack_list);
+		TAILQ_INIT(&niface->auth_md_list);
+		RB_INIT(&niface->lsa_tree);
+
+		niface->area = narea;
+		LIST_INSERT_HEAD(&narea->iface_list, niface, entry);
+		break;
+	case IMSG_RECONF_AUTHMD:
+		if (imsg_get_data(imsg, md.key, sizeof(md.key)) == -1)
+			fatalx("bad RECONF_AUTHMD imsg received");
+		md.keyid = imsg_get_id(imsg);
+		md_list_add(&niface->auth_md_list,
+		    md.keyid, md.key);
+		break;
+	case IMSG_RECONF_END:
+		if ((oeconf->flags & OSPFD_FLAG_STUB_ROUTER) !=
+		    (noeconf->flags & OSPFD_FLAG_STUB_ROUTER))
+			stub_changed = 1;
+		else
+			stub_changed = 0;
+		merge_config(oeconf, noeconf);
+		noeconf = NULL;
+		if (stub_changed)
+			orig_rtr_lsa_all(NULL);
+		break;
+	case IMSG_CTL_KROUTE:
+	case IMSG_CTL_KROUTE_ADDR:
+	case IMSG_CTL_IFINFO:
+	case IMSG_CTL_END:
+		control_imsg_relay(imsg);
+		break;
+	case IMSG_CONTROLFD:
+		if ((fd = imsg_get_fd(imsg)) == -1)
+			fatalx("expected to receive imsg control fd "
+			    "but didn't receive any");
+		/* Listen on control socket. */
+		control_listen(fd);
+		if (pledge("stdio inet mcast", NULL) == -1)
+			fatal("pledge");
+		break;
+	default:
+		log_debug("ospfe_dispatch_main: error handling imsg %d", type);
+		break;
 	}
 }
 
 void
-ospfe_dispatch_rde(int fd, short event, void *arg)
+ospfe_dispatch_rde(struct imsg *imsg, void *arg)
 {
 	struct lsa_hdr		 lsa_hdr;
-	struct imsgbuf		*ibuf = arg;
 	struct nbr		*nbr;
 	struct lsa_hdr		*lhp;
 	struct lsa_ref		*ref;
 	struct area		*area;
 	struct iface		*iface;
 	struct lsa_entry	*le;
-	struct imsg		 imsg;
 	struct abr_rtr		 ar;
-	int			 n, noack = 0, shut = 0;
+	uint32_t		 type, peerid;
+	int			 noack = 0;
 	u_int16_t		 l, age;
 
-	if (event & EV_READ) {
-		if ((n = imsgbuf_read(ibuf)) == -1)
-			fatal("imsgbuf_read error");
-		if (n == 0)	/* connection closed */
-			shut = 1;
-	}
-	if (event & EV_WRITE) {
-		if (imsgbuf_write(ibuf) == -1) {
-			if (errno == EPIPE)	/* connection closed */
-				shut = 1;
+	type = imsg_get_type(imsg);
+	peerid = imsg_get_id(imsg);
+	switch (type) {
+	case IMSG_DD:
+		nbr = nbr_find_peerid(peerid);
+		if (nbr == NULL)
+			break;
+
+		/*
+		 * Ignore imsg when in the wrong state because a
+		 * NBR_EVT_SEQ_NUM_MIS may have been issued in between.
+		 * Luckily regetting the DB snapshot acts as a barrier
+		 * for both state and process synchronisation.
+		 */
+		if ((nbr->state & NBR_STA_FLOOD) == 0)
+			break;
+
+		/* put these on my ls_req_list for retrieval */
+		lhp = lsa_hdr_new();
+		if (imsg_get_data(imsg, lhp, sizeof(*lhp)) == -1)
+			fatalx("bad DD imsg received");
+		ls_req_list_add(nbr, lhp);
+		break;
+	case IMSG_DD_END:
+		nbr = nbr_find_peerid(peerid);
+		if (nbr == NULL)
+			break;
+
+		/* see above */
+		if ((nbr->state & NBR_STA_FLOOD) == 0)
+			break;
+
+		nbr->dd_pending--;
+		if (nbr->dd_pending == 0 && nbr->state & NBR_STA_LOAD) {
+			if (ls_req_list_empty(nbr))
+				nbr_fsm(nbr, NBR_EVT_LOAD_DONE);
 			else
-				fatal("imsgbuf_write");
+				start_ls_req_tx_timer(nbr);
 		}
-	}
-
-	for (;;) {
-		if ((n = imsgbuf_get(ibuf, &imsg)) == -1)
-			fatal("ospfe_dispatch_rde: imsgbuf_get error");
-		if (n == 0)
+		break;
+	case IMSG_DD_BADLSA:
+		nbr = nbr_find_peerid(peerid);
+		if (nbr == NULL)
 			break;
 
-		switch (imsg.hdr.type) {
-		case IMSG_DD:
-			nbr = nbr_find_peerid(imsg.hdr.peerid);
-			if (nbr == NULL)
-				break;
+		if (nbr->iface->self == nbr)
+			fatalx("ospfe_dispatch_rde: "
+			    "dummy neighbor got BADREQ");
 
+		nbr_fsm(nbr, NBR_EVT_SEQ_NUM_MIS);
+		break;
+	case IMSG_DB_SNAPSHOT:
+		nbr = nbr_find_peerid(peerid);
+		if (nbr == NULL)
+			break;
+		if (nbr->state != NBR_STA_SNAP)	/* discard */
+			break;
+
+		/* add LSA header to the neighbor db_sum_list */
+		lhp = lsa_hdr_new();
+		if (imsg_get_data(imsg, lhp, sizeof(*lhp)) == -1)
+			fatalx("bad DB_SNAPSHOT imsg received");
+		db_sum_list_add(nbr, lhp);
+		break;
+	case IMSG_DB_END:
+		nbr = nbr_find_peerid(peerid);
+		if (nbr == NULL)
+			break;
+
+		nbr->dd_snapshot = 0;
+		if (nbr->state != NBR_STA_SNAP)
+			break;
+
+		/* snapshot done, start tx of dd packets */
+		nbr_fsm(nbr, NBR_EVT_SNAP_DONE);
+		break;
+	case IMSG_LS_FLOOD:
+		nbr = nbr_find_peerid(peerid);
+		if (nbr == NULL)
+			break;
+
+		l = imsg_get_len(imsg);
+		if (l < sizeof(lsa_hdr))
+			fatalx("ospfe_dispatch_rde: "
+			    "bad imsg size");
+		memcpy(&lsa_hdr, imsg->data, sizeof(lsa_hdr));
+
+		ref = lsa_cache_add(imsg->data, l);
+
+		if (lsa_hdr.type == LSA_TYPE_EXTERNAL) {
 			/*
-			 * Ignore imsg when in the wrong state because a
-			 * NBR_EVT_SEQ_NUM_MIS may have been issued in between.
-			 * Luckily regetting the DB snapshot acts as a barrier
-			 * for both state and process synchronisation.
+			 * flood on all areas but stub areas and
+			 * virtual links
 			 */
-			if ((nbr->state & NBR_STA_FLOOD) == 0)
-				break;
-
-			/* put these on my ls_req_list for retrieval */
-			lhp = lsa_hdr_new();
-			memcpy(lhp, imsg.data, sizeof(*lhp));
-			ls_req_list_add(nbr, lhp);
-			break;
-		case IMSG_DD_END:
-			nbr = nbr_find_peerid(imsg.hdr.peerid);
-			if (nbr == NULL)
-				break;
-
-			/* see above */
-			if ((nbr->state & NBR_STA_FLOOD) == 0)
-				break;
-
-			nbr->dd_pending--;
-			if (nbr->dd_pending == 0 && nbr->state & NBR_STA_LOAD) {
-				if (ls_req_list_empty(nbr))
-					nbr_fsm(nbr, NBR_EVT_LOAD_DONE);
-				else
-					start_ls_req_tx_timer(nbr);
+			LIST_FOREACH(area, &oeconf->area_list, entry) {
+			    if (area->stub)
+				    continue;
+			    LIST_FOREACH(iface, &area->iface_list,
+				entry) {
+				    noack += lsa_flood(iface, nbr,
+					&lsa_hdr, imsg->data);
+			    }
 			}
-			break;
-		case IMSG_DD_BADLSA:
-			nbr = nbr_find_peerid(imsg.hdr.peerid);
-			if (nbr == NULL)
-				break;
-
-			if (nbr->iface->self == nbr)
-				fatalx("ospfe_dispatch_rde: "
-				    "dummy neighbor got BADREQ");
-
-			nbr_fsm(nbr, NBR_EVT_SEQ_NUM_MIS);
-			break;
-		case IMSG_DB_SNAPSHOT:
-			nbr = nbr_find_peerid(imsg.hdr.peerid);
-			if (nbr == NULL)
-				break;
-			if (nbr->state != NBR_STA_SNAP)	/* discard */
-				break;
-
-			/* add LSA header to the neighbor db_sum_list */
-			lhp = lsa_hdr_new();
-			memcpy(lhp, imsg.data, sizeof(*lhp));
-			db_sum_list_add(nbr, lhp);
-			break;
-		case IMSG_DB_END:
-			nbr = nbr_find_peerid(imsg.hdr.peerid);
-			if (nbr == NULL)
-				break;
-
-			nbr->dd_snapshot = 0;
-			if (nbr->state != NBR_STA_SNAP)
-				break;
-
-			/* snapshot done, start tx of dd packets */
-			nbr_fsm(nbr, NBR_EVT_SNAP_DONE);
-			break;
-		case IMSG_LS_FLOOD:
-			nbr = nbr_find_peerid(imsg.hdr.peerid);
-			if (nbr == NULL)
-				break;
-
-			l = imsg.hdr.len - IMSG_HEADER_SIZE;
-			if (l < sizeof(lsa_hdr))
-				fatalx("ospfe_dispatch_rde: "
-				    "bad imsg size");
-			memcpy(&lsa_hdr, imsg.data, sizeof(lsa_hdr));
-
-			ref = lsa_cache_add(imsg.data, l);
-
-			if (lsa_hdr.type == LSA_TYPE_EXTERNAL) {
-				/*
-				 * flood on all areas but stub areas and
-				 * virtual links
-				 */
-				LIST_FOREACH(area, &oeconf->area_list, entry) {
-				    if (area->stub)
-					    continue;
-				    LIST_FOREACH(iface, &area->iface_list,
-					entry) {
-					    noack += lsa_flood(iface, nbr,
-						&lsa_hdr, imsg.data);
-				    }
-				}
-			} else if (lsa_hdr.type == LSA_TYPE_LINK_OPAQ) {
-				/*
-				 * Flood on interface only
-				 */
-				noack += lsa_flood(nbr->iface, nbr,
-				    &lsa_hdr, imsg.data);
-			} else {
-				/*
-				 * Flood on all area interfaces. For
-				 * area 0.0.0.0 include the virtual links.
-				 */
-				area = nbr->iface->area;
-				LIST_FOREACH(iface, &area->iface_list, entry) {
-					noack += lsa_flood(iface, nbr,
-					    &lsa_hdr, imsg.data);
-				}
-				/* XXX virtual links */
-			}
-
-			/* remove from ls_req_list */
-			le = ls_req_list_get(nbr, &lsa_hdr);
-			if (!(nbr->state & NBR_STA_FULL) && le != NULL) {
-				ls_req_list_free(nbr, le);
-				/*
-				 * XXX no need to ack requested lsa
-				 * the problem is that the RFC is very
-				 * unclear about this.
-				 */
-				noack = 1;
-			}
-
-			if (!noack && nbr->iface != NULL &&
-			    nbr->iface->self != nbr) {
-				if (!(nbr->iface->state & IF_STA_BACKUP) ||
-				    nbr->iface->dr == nbr) {
-					/* delayed ack */
-					lhp = lsa_hdr_new();
-					memcpy(lhp, &lsa_hdr, sizeof(*lhp));
-					ls_ack_list_add(nbr->iface, lhp);
-				}
-			}
-
-			lsa_cache_put(ref, nbr);
-			break;
-		case IMSG_LS_UPD:
-		case IMSG_LS_SNAP:
+		} else if (lsa_hdr.type == LSA_TYPE_LINK_OPAQ) {
 			/*
-			 * IMSG_LS_UPD is used in two cases:
-			 * 1. as response to ls requests
-			 * 2. as response to ls updates where the DB
-			 *    is newer then the sent LSA
-			 * IMSG_LS_SNAP is used in one case:
-			 *    in EXSTART when the LSA has age MaxAge
+			 * Flood on interface only
 			 */
-			l = imsg.hdr.len - IMSG_HEADER_SIZE;
-			if (l < sizeof(lsa_hdr))
-				fatalx("ospfe_dispatch_rde: "
-				    "bad imsg size");
-
-			nbr = nbr_find_peerid(imsg.hdr.peerid);
-			if (nbr == NULL)
-				break;
-
-			if (nbr->iface->self == nbr)
-				break;
-
-			if (imsg.hdr.type == IMSG_LS_SNAP &&
-			    nbr->state != NBR_STA_SNAP)
-				break;
-
-			memcpy(&age, imsg.data, sizeof(age));
-			ref = lsa_cache_add(imsg.data, l);
-			if (ntohs(age) >= MAX_AGE)
-				/* add to retransmit list */
-				ls_retrans_list_add(nbr, imsg.data, 0, 0);
-			else
-				ls_retrans_list_add(nbr, imsg.data, 0, 1);
-
-			lsa_cache_put(ref, nbr);
-			break;
-		case IMSG_LS_ACK:
+			noack += lsa_flood(nbr->iface, nbr,
+			    &lsa_hdr, imsg->data);
+		} else {
 			/*
-			 * IMSG_LS_ACK is used in two cases:
-			 * 1. LSA was a duplicate
-			 * 2. LS age is MaxAge and there is no current
-			 *    instance in the DB plus no neighbor in state
-			 *    Exchange or Loading
+			 * Flood on all area interfaces. For
+			 * area 0.0.0.0 include the virtual links.
 			 */
-			nbr = nbr_find_peerid(imsg.hdr.peerid);
-			if (nbr == NULL)
-				break;
-
-			if (nbr->iface->self == nbr)
-				break;
-
-			if (imsg.hdr.len - IMSG_HEADER_SIZE != sizeof(lsa_hdr))
-				fatalx("ospfe_dispatch_rde: bad imsg size");
-			memcpy(&lsa_hdr, imsg.data, sizeof(lsa_hdr));
-
-			/* for case one check for implied acks */
-			if (nbr->iface->state & IF_STA_DROTHER)
-				if (ls_retrans_list_del(nbr->iface->self,
-				    &lsa_hdr) == 0)
-					break;
-			if (ls_retrans_list_del(nbr, &lsa_hdr) == 0)
-				break;
-
-			/* send a direct acknowledgement */
-			send_direct_ack(nbr->iface, nbr->addr, imsg.data,
-			    imsg.hdr.len - IMSG_HEADER_SIZE);
-
-			break;
-		case IMSG_LS_BADREQ:
-			nbr = nbr_find_peerid(imsg.hdr.peerid);
-			if (nbr == NULL)
-				break;
-
-			if (nbr->iface->self == nbr)
-				fatalx("ospfe_dispatch_rde: "
-				    "dummy neighbor got BADREQ");
-
-			nbr_fsm(nbr, NBR_EVT_BAD_LS_REQ);
-			break;
-		case IMSG_ABR_UP:
-			memcpy(&ar, imsg.data, sizeof(ar));
-
-			if ((iface = find_vlink(&ar)) != NULL &&
-			    iface->state == IF_STA_DOWN)
-				if (if_fsm(iface, IF_EVT_UP)) {
-					log_debug("error starting interface %s",
-					    iface->name);
-				}
-			break;
-		case IMSG_ABR_DOWN:
-			memcpy(&ar, imsg.data, sizeof(ar));
-
-			if ((iface = find_vlink(&ar)) != NULL &&
-			    iface->state == IF_STA_POINTTOPOINT)
-				if (if_fsm(iface, IF_EVT_DOWN)) {
-					log_debug("error stopping interface %s",
-					    iface->name);
-				}
-			break;
-		case IMSG_CTL_AREA:
-		case IMSG_CTL_IFACE:
-		case IMSG_CTL_END:
-		case IMSG_CTL_SHOW_DATABASE:
-		case IMSG_CTL_SHOW_DB_EXT:
-		case IMSG_CTL_SHOW_DB_NET:
-		case IMSG_CTL_SHOW_DB_RTR:
-		case IMSG_CTL_SHOW_DB_SELF:
-		case IMSG_CTL_SHOW_DB_SUM:
-		case IMSG_CTL_SHOW_DB_ASBR:
-		case IMSG_CTL_SHOW_DB_OPAQ:
-		case IMSG_CTL_SHOW_RIB:
-		case IMSG_CTL_SHOW_SUM:
-		case IMSG_CTL_SHOW_SUM_AREA:
-			control_imsg_relay(&imsg);
-			break;
-		default:
-			log_debug("ospfe_dispatch_rde: error handling imsg %d",
-			    imsg.hdr.type);
-			break;
+			area = nbr->iface->area;
+			LIST_FOREACH(iface, &area->iface_list, entry) {
+				noack += lsa_flood(iface, nbr,
+				    &lsa_hdr, imsg->data);
+			}
+			/* XXX virtual links */
 		}
-		imsg_free(&imsg);
-	}
-	if (!shut)
-		imsg_event_add(ibuf, imsgbuf_get_userdata(ibuf));
-	else {
-		/* this pipe is dead, exit asap */
-		event_loopexit(NULL);
+
+		/* remove from ls_req_list */
+		le = ls_req_list_get(nbr, &lsa_hdr);
+		if (!(nbr->state & NBR_STA_FULL) && le != NULL) {
+			ls_req_list_free(nbr, le);
+			/*
+			 * XXX no need to ack requested lsa
+			 * the problem is that the RFC is very
+			 * unclear about this.
+			 */
+			noack = 1;
+		}
+
+		if (!noack && nbr->iface != NULL &&
+		    nbr->iface->self != nbr) {
+			if (!(nbr->iface->state & IF_STA_BACKUP) ||
+			    nbr->iface->dr == nbr) {
+				/* delayed ack */
+				lhp = lsa_hdr_new();
+				memcpy(lhp, &lsa_hdr, sizeof(*lhp));
+				ls_ack_list_add(nbr->iface, lhp);
+			}
+		}
+
+		lsa_cache_put(ref, nbr);
+		break;
+	case IMSG_LS_UPD:
+	case IMSG_LS_SNAP:
+		/*
+		 * IMSG_LS_UPD is used in two cases:
+		 * 1. as response to ls requests
+		 * 2. as response to ls updates where the DB
+		 *    is newer then the sent LSA
+		 * IMSG_LS_SNAP is used in one case:
+		 *    in EXSTART when the LSA has age MaxAge
+		 */
+		l = imsg_get_len(imsg);
+		if (l < sizeof(lsa_hdr))
+			fatalx("ospfe_dispatch_rde: "
+			    "bad imsg size");
+
+		nbr = nbr_find_peerid(peerid);
+		if (nbr == NULL)
+			break;
+
+		if (nbr->iface->self == nbr)
+			break;
+
+		if (type == IMSG_LS_SNAP && nbr->state != NBR_STA_SNAP)
+			break;
+
+		memcpy(&age, imsg->data, sizeof(age));
+		ref = lsa_cache_add(imsg->data, l);
+		if (ntohs(age) >= MAX_AGE)
+			/* add to retransmit list */
+			ls_retrans_list_add(nbr, imsg->data, 0, 0);
+		else
+			ls_retrans_list_add(nbr, imsg->data, 0, 1);
+
+		lsa_cache_put(ref, nbr);
+		break;
+	case IMSG_LS_ACK:
+		/*
+		 * IMSG_LS_ACK is used in two cases:
+		 * 1. LSA was a duplicate
+		 * 2. LS age is MaxAge and there is no current
+		 *    instance in the DB plus no neighbor in state
+		 *    Exchange or Loading
+		 */
+		nbr = nbr_find_peerid(peerid);
+		if (nbr == NULL)
+			break;
+
+		if (nbr->iface->self == nbr)
+			break;
+
+		if (imsg_get_data(imsg, &lsa_hdr, sizeof(lsa_hdr)) == -1)
+			fatalx("bad LS_ACK imsg received");
+
+		/* for case one check for implied acks */
+		if (nbr->iface->state & IF_STA_DROTHER)
+			if (ls_retrans_list_del(nbr->iface->self,
+			    &lsa_hdr) == 0)
+				break;
+		if (ls_retrans_list_del(nbr, &lsa_hdr) == 0)
+			break;
+
+		/* send a direct acknowledgement */
+		send_direct_ack(nbr->iface, nbr->addr, &lsa_hdr,
+		    sizeof(lsa_hdr));
+		break;
+	case IMSG_LS_BADREQ:
+		nbr = nbr_find_peerid(peerid);
+		if (nbr == NULL)
+			break;
+
+		if (nbr->iface->self == nbr)
+			fatalx("ospfe_dispatch_rde: "
+			    "dummy neighbor got BADREQ");
+
+		nbr_fsm(nbr, NBR_EVT_BAD_LS_REQ);
+		break;
+	case IMSG_ABR_UP:
+		if (imsg_get_data(imsg, &ar, sizeof(ar)) == -1)
+			fatalx("bad ABR_UP imsg received");
+
+		if ((iface = find_vlink(&ar)) != NULL &&
+		    iface->state == IF_STA_DOWN)
+			if (if_fsm(iface, IF_EVT_UP)) {
+				log_debug("error starting interface %s",
+				    iface->name);
+			}
+		break;
+	case IMSG_ABR_DOWN:
+		if (imsg_get_data(imsg, &ar, sizeof(ar)) == -1)
+			fatalx("bad ABR_DOWN imsg received");
+
+		if ((iface = find_vlink(&ar)) != NULL &&
+		    iface->state == IF_STA_POINTTOPOINT)
+			if (if_fsm(iface, IF_EVT_DOWN)) {
+				log_debug("error stopping interface %s",
+				    iface->name);
+			}
+		break;
+	case IMSG_CTL_AREA:
+	case IMSG_CTL_IFACE:
+	case IMSG_CTL_END:
+	case IMSG_CTL_SHOW_DATABASE:
+	case IMSG_CTL_SHOW_DB_EXT:
+	case IMSG_CTL_SHOW_DB_NET:
+	case IMSG_CTL_SHOW_DB_RTR:
+	case IMSG_CTL_SHOW_DB_SELF:
+	case IMSG_CTL_SHOW_DB_SUM:
+	case IMSG_CTL_SHOW_DB_ASBR:
+	case IMSG_CTL_SHOW_DB_OPAQ:
+	case IMSG_CTL_SHOW_RIB:
+	case IMSG_CTL_SHOW_SUM:
+	case IMSG_CTL_SHOW_SUM_AREA:
+		control_imsg_relay(imsg);
+		break;
+	default:
+		log_debug("ospfe_dispatch_rde: error handling imsg %d", type);
+		break;
 	}
 }
 
@@ -889,7 +828,7 @@ orig_rtr_lsa(struct area *area)
 					rtr_link.data = 0xffffffff;
 				} else {
 					rtr_link.id = iface->addr.s_addr &
-					              iface->mask.s_addr;
+					    iface->mask.s_addr;
 					rtr_link.data = iface->mask.s_addr;
 				}
 				rtr_link.type = LINK_TYPE_STUB_NET;
@@ -956,7 +895,7 @@ orig_rtr_lsa(struct area *area)
 			    iface->linkstate == LINK_STATE_DOWN)
 				rtr_link.metric = MAX_METRIC;
 			else if (iface->dependon[0] != '\0' &&
-			         iface->depend_ok == 0)
+			    iface->depend_ok == 0)
 				rtr_link.metric = MAX_METRIC;
 			else
 				rtr_link.metric = htons(iface->metric);
@@ -1197,6 +1136,8 @@ ospfe_iface_ctl(struct ctl_conn *c, unsigned int idx)
 				    IMSG_CTL_SHOW_INTERFACE, 0, 0, -1,
 				    ictl, sizeof(struct ctl_iface));
 			}
+
+	imsg_compose(c->imsgbuf, IMSG_CTL_END, 0, 0, -1, NULL, 0);
 }
 
 void

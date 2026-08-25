@@ -120,11 +120,11 @@ void	 recv_hello(struct iface *,  struct in_addr, u_int32_t,
 
 /* ospfe.c */
 pid_t		 ospfe(struct ospfd_conf *, int[2], int[2], int[2]);
-void		 ospfe_dispatch_main(int, short, void *);
-void		 ospfe_dispatch_rde(int, short, void *);
 int		 ospfe_imsg_compose_parent(int, pid_t, void *, u_int16_t);
 int		 ospfe_imsg_compose_rde(int, u_int32_t, pid_t, void *,
 		     u_int16_t);
+int		 ospfe_imsg_forward_parent(struct imsg *);
+int		 ospfe_imsg_forward_rde(struct imsg *);
 u_int32_t	 ospfe_router_id(void);
 void		 ospfe_fib_update(int);
 void		 ospfe_iface_ctl(struct ctl_conn *, unsigned int);

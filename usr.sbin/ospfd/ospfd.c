@@ -52,8 +52,8 @@ void		main_sig_handler(int, short, void *);
 __dead void	usage(void);
 __dead void	ospfd_shutdown(void);
 
-void	main_dispatch_ospfe(int, short, void *);
-void	main_dispatch_rde(int, short, void *);
+void	main_dispatch_ospfe(struct imsg *, void *);
+void	main_dispatch_rde(struct imsg *, void *);
 
 int	ospf_reload(void);
 int	ospf_sendboth(enum imsg_type, void *, u_int16_t);
@@ -261,9 +261,9 @@ main(int argc, char *argv[])
 	close(pipe_ospfe2rde[1]);
 
 	if ((imsg_ospfe = imsgev_new(pipe_parent2ospfe[0],
-	    main_dispatch_ospfe)) == NULL ||
+	    main_dispatch_ospfe, ospfd_dispatch_error, NULL)) == NULL ||
 	    (imsg_rde = imsgev_new(pipe_parent2rde[0],
-	    main_dispatch_rde)) == NULL)
+	    main_dispatch_rde, ospfd_dispatch_error, NULL)) == NULL)
 		fatal(NULL);
 	imsgbuf_allow_fdpass(imsg_ospfe);
 
@@ -332,144 +332,106 @@ ospfd_shutdown(void)
 
 /* imsg handling */
 void
-main_dispatch_ospfe(int fd, short event, void *arg)
+main_dispatch_ospfe(struct imsg *imsg, void *arg)
 {
-	struct imsgbuf		*ibuf = arg;
-	struct imsg		 imsg;
+	uint32_t		 type;
 	struct demote_msg	 dmsg;
-	int			 n, shut = 0, verbose;
+	char			 ifname[IFNAMSIZ];
+	int			 verbose;
 
-	if (event & EV_READ) {
-		if ((n = imsgbuf_read(ibuf)) == -1)
-			fatal("imsgbuf_read error");
-		if (n == 0)	/* connection closed */
-			shut = 1;
-	}
-	if (event & EV_WRITE) {
-		if (imsgbuf_write(ibuf) == -1) {
-			if (errno == EPIPE)	/* connection closed */
-				shut = 1;
-			else
-				fatal("imsgbuf_write");
-		}
-	}
-
-	for (;;) {
-		if ((n = imsgbuf_get(ibuf, &imsg)) == -1)
-			fatal("imsgbuf_get");
-		if (n == 0)
-			break;
-
-		switch (imsg.hdr.type) {
-		case IMSG_CTL_RELOAD:
-			if (ospf_reload() == -1)
-				log_warnx("configuration reload failed");
-			else
-				log_debug("configuration reloaded");
-			break;
-		case IMSG_CTL_FIB_COUPLE:
-			kr_fib_couple();
-			break;
-		case IMSG_CTL_FIB_DECOUPLE:
-			kr_fib_decouple();
-			break;
-		case IMSG_CTL_FIB_RELOAD:
-			kr_fib_reload();
-			break;
-		case IMSG_CTL_KROUTE:
-		case IMSG_CTL_KROUTE_ADDR:
-			kr_show_route(&imsg);
-			break;
-		case IMSG_CTL_IFINFO:
-			if (imsg.hdr.len == IMSG_HEADER_SIZE)
-				kr_ifinfo(NULL, imsg.hdr.pid);
-			else if (imsg.hdr.len == IMSG_HEADER_SIZE + IFNAMSIZ)
-				kr_ifinfo(imsg.data, imsg.hdr.pid);
-			else
-				log_warnx("IFINFO request with wrong len");
-			break;
-		case IMSG_DEMOTE:
-			if (imsg.hdr.len - IMSG_HEADER_SIZE != sizeof(dmsg))
-				fatalx("invalid size of OE request");
-			memcpy(&dmsg, imsg.data, sizeof(dmsg));
-			carp_demote_set(dmsg.demote_group, dmsg.level);
-			break;
-		case IMSG_CTL_LOG_VERBOSE:
-			if (imsg_get_data(&imsg, &verbose, sizeof(verbose)) ==
-			    -1)
-				log_warn("wrong imsg len");
-			else
-				log_setverbose(verbose);
-			break;
-		default:
-			log_debug("main_dispatch_ospfe: error handling imsg %d",
-			    imsg.hdr.type);
-			break;
-		}
-		imsg_free(&imsg);
-	}
-	if (!shut)
-		imsg_event_add(ibuf, imsgbuf_get_userdata(ibuf));
-	else {
-		/* this pipe is dead, exit asap */
-		event_loopexit(NULL);
+	type = imsg_get_type(imsg);
+	switch (type) {
+	case IMSG_CTL_RELOAD:
+		if (ospf_reload() == -1)
+			log_warnx("configuration reload failed");
+		else
+			log_debug("configuration reloaded");
+		break;
+	case IMSG_CTL_FIB_COUPLE:
+		kr_fib_couple();
+		break;
+	case IMSG_CTL_FIB_DECOUPLE:
+		kr_fib_decouple();
+		break;
+	case IMSG_CTL_FIB_RELOAD:
+		kr_fib_reload();
+		break;
+	case IMSG_CTL_KROUTE:
+	case IMSG_CTL_KROUTE_ADDR:
+		kr_show_route(imsg);
+		break;
+	case IMSG_CTL_IFINFO:
+		if (imsg_get_len(imsg) == 0)
+			kr_ifinfo(NULL, imsg_get_pid(imsg));
+		else if (imsg_get_len(imsg) != IFNAMSIZ ||
+		    imsg_get_strbuf(imsg, ifname, sizeof(ifname)) == -1)
+			log_warnx("bad IFINFO request");
+		else
+			kr_ifinfo(ifname, imsg_get_pid(imsg));
+		break;
+	case IMSG_DEMOTE:
+		if (imsg_get_len(imsg) != sizeof(dmsg) ||
+		    imsg_get_strbuf(imsg, dmsg.demote_group,
+		    sizeof(dmsg.demote_group)) == -1 ||
+		    imsg_get_buf(imsg, &dmsg.level, sizeof(dmsg.level)) == -1)
+			fatalx("bad demote request from OE");
+		carp_demote_set(dmsg.demote_group, dmsg.level);
+		break;
+	case IMSG_CTL_LOG_VERBOSE:
+		if (imsg_get_data(imsg, &verbose, sizeof(verbose)) == -1)
+			log_warn("wrong imsg len");
+		else
+			log_setverbose(verbose);
+		break;
+	default:
+		log_debug("main_dispatch_ospfe: error handling imsg %d",
+		    type);
+		break;
 	}
 }
 
 void
-main_dispatch_rde(int fd, short event, void *arg)
+main_dispatch_rde(struct imsg *imsg, void *arg)
 {
-	struct imsgbuf  *ibuf = arg;
-	struct imsg	 imsg;
-	int		 n, count, shut = 0;
+	uint32_t	type;
+	int		count;
 
-	if (event & EV_READ) {
-		if ((n = imsgbuf_read(ibuf)) == -1)
-			fatal("imsgbuf_read error");
-		if (n == 0)	/* connection closed */
-			shut = 1;
+	type = imsg_get_type(imsg);
+	switch (type) {
+	case IMSG_KROUTE_CHANGE:
+		count = imsg_get_len(imsg) / sizeof(struct kroute);
+		if (kr_change(imsg->data, count))		/* XXX */
+			log_warn("main_dispatch_rde: error changing "
+			    "route");
+		break;
+	case IMSG_KROUTE_DELETE:
+		if (kr_delete(imsg->data))			/* XXX */
+			log_warn("main_dispatch_rde: error deleting "
+			    "route");
+		break;
+	default:
+		log_debug("main_dispatch_rde: error handling imsg %d",
+		    type);
+		break;
 	}
-	if (event & EV_WRITE) {
-		if (imsgbuf_write(ibuf) == -1) {
-			if (errno == EPIPE)	/* connection closed */
-				shut = 1;
-			else
-				fatal("imsgbuf_write");
-		}
-	}
+}
 
-	for (;;) {
-		if ((n = imsgbuf_get(ibuf, &imsg)) == -1)
-			fatal("imsgbuf_get");
-		if (n == 0)
-			break;
+void
+ospfd_dispatch_error(struct imsgbuf *ibuf, void *arg, short event, int error)
+{
+	const char *dir, *err = "connection closed";
 
-		switch (imsg.hdr.type) {
-		case IMSG_KROUTE_CHANGE:
-			count = (imsg.hdr.len - IMSG_HEADER_SIZE) /
-			    sizeof(struct kroute);
-			if (kr_change(imsg.data, count))
-				log_warn("main_dispatch_rde: error changing "
-				    "route");
-			break;
-		case IMSG_KROUTE_DELETE:
-			if (kr_delete(imsg.data))
-				log_warn("main_dispatch_rde: error deleting "
-				    "route");
-			break;
-		default:
-			log_debug("main_dispatch_rde: error handling imsg %d",
-			    imsg.hdr.type);
-			break;
-		}
-		imsg_free(&imsg);
-	}
-	if (!shut)
-		imsg_event_add(ibuf, imsgbuf_get_userdata(ibuf));
-	else {
-		/* this pipe is dead, exit asap */
-		event_loopexit(NULL);
-	}
+	if (event & EV_READ)
+		dir = "imsg read";
+	else
+		dir = "imsg write";
+
+	if (error)
+		err = strerror(error);
+	log_warnx("%s: %s", dir, err);
+
+	/* this pipe is dead, exit asap, cleanup is done there */
+	event_loopexit(NULL);
 }
 
 void
@@ -499,7 +461,7 @@ ospf_redistribute(struct kroute *kr, u_int32_t *metric)
 	struct in_addr		 addr;
 	struct kif		*kif;
 	struct redistribute	*r;
-	int		 	 is_default, depend_ok;
+	int			 is_default, depend_ok;
 
 	bzero(&addr, sizeof(addr));
 
@@ -684,8 +646,8 @@ ospf_reload(void)
 		return (-1);
 
 	/* No router-id was specified, keep existing value */
-        if (xconf->rtr_id.s_addr == 0)
-                xconf->rtr_id.s_addr = ospfd_conf->rtr_id.s_addr;
+	if (xconf->rtr_id.s_addr == 0)
+		xconf->rtr_id.s_addr = ospfd_conf->rtr_id.s_addr;
 
 	/* Abort the reload if rtr_id changed */
 	if (ospfd_conf->rtr_id.s_addr != xconf->rtr_id.s_addr) {
@@ -936,8 +898,7 @@ merge_interfaces(struct area *a, struct area *xa)
 		md_list_clr(&i->auth_md_list);
 		md_list_copy(&i->auth_md_list, &xi->auth_md_list);
 
-		strlcpy(i->dependon, xi->dependon,
-		        sizeof(i->dependon));
+		strlcpy(i->dependon, xi->dependon, sizeof(i->dependon));
 		i->depend_ok = xi->depend_ok;
 
 		if (i->passive != xi->passive) {

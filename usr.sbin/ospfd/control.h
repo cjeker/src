@@ -32,7 +32,6 @@ int	control_check(char *);
 int	control_init(char *);
 int	control_listen(int);
 void	control_accept(int, short, void *);
-void	control_dispatch_imsg(int, short, void *);
 int	control_imsg_relay(struct imsg *);
 void	control_cleanup(void);
 

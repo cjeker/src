@@ -18,6 +18,6 @@
 
 #include <imsg.h>
 
-void		 imsg_event_add(struct imsgbuf *, void *);
-struct imsgbuf	*imsgev_new(int, void (*)(int, short, void *));
+struct imsgbuf	*imsgev_new(int, void (*)(struct imsg *, void *),
+		    void (*)(struct imsgbuf *, void *, short, int), void *);
 void		 imsgev_free(struct imsgbuf *);
