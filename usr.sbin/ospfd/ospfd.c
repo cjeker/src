@@ -394,18 +394,16 @@ void
 main_dispatch_rde(struct imsg *imsg, void *arg)
 {
 	uint32_t	type;
-	int		count;
 
 	type = imsg_get_type(imsg);
 	switch (type) {
 	case IMSG_KROUTE_CHANGE:
-		count = imsg_get_len(imsg) / sizeof(struct kroute);
-		if (kr_change(imsg->data, count))		/* XXX */
+		if (kr_change(imsg))
 			log_warn("main_dispatch_rde: error changing "
 			    "route");
 		break;
 	case IMSG_KROUTE_DELETE:
-		if (kr_delete(imsg->data))			/* XXX */
+		if (kr_delete(imsg))
 			log_warn("main_dispatch_rde: error deleting "
 			    "route");
 		break;
