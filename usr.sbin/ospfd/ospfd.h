@@ -606,6 +606,7 @@ u_int16_t	 rtlabel_tag2id(u_int32_t);
 void		 rtlabel_tag(u_int16_t, u_int32_t);
 
 /* ospfd.c */
+void	ospfd_dispatch_error(struct imsgbuf *, void *, short, int);
 void	main_imsg_compose_ospfe(int, pid_t, void *, u_int16_t);
 void	main_imsg_compose_ospfe_fd(int, pid_t, int);
 void	main_imsg_compose_rde(int, pid_t, void *, u_int16_t);

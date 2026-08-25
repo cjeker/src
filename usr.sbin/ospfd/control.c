@@ -38,7 +38,9 @@ TAILQ_HEAD(ctl_conns, ctl_conn)	ctl_conns = TAILQ_HEAD_INITIALIZER(ctl_conns);
 
 struct ctl_conn	*control_connbyfd(int);
 struct ctl_conn	*control_connbypid(pid_t);
-void		 control_close(int);
+void		 control_close(struct ctl_conn *);
+void		 control_dispatch_imsg(struct imsg *, void *);
+void		 control_dispatch_error(struct imsgbuf *, void *, short, int);
 
 struct {
 	struct event	ev;
@@ -176,7 +178,8 @@ control_accept(int listenfd, short event, void *bula)
 		return;
 	}
 
-	if ((c->imsgbuf = imsgev_new(connfd, control_dispatch_imsg)) == NULL) {
+	if ((c->imsgbuf = imsgev_new(connfd, control_dispatch_imsg,
+	    control_dispatch_error, c)) == NULL) {
 		log_warn("imsgbuf_init");
 		close(connfd);
 		free(c);
@@ -213,15 +216,8 @@ control_connbypid(pid_t pid)
 }
 
 void
-control_close(int fd)
+control_close(struct ctl_conn *c)
 {
-	struct ctl_conn	*c;
-
-	if ((c = control_connbyfd(fd)) == NULL) {
-		log_warn("control_close: fd %d: not found", fd);
-		return;
-	}
-
 	TAILQ_REMOVE(&ctl_conns, c, entry);
 	imsgev_free(c->imsgbuf);
 
@@ -235,104 +231,74 @@ control_close(int fd)
 }
 
 void
-control_dispatch_imsg(int fd, short event, void *bula)
+control_dispatch_imsg(struct imsg *imsg, void *arg)
 {
-	struct ctl_conn	*c;
-	struct imsg	 imsg;
-	int		 n, verbose;
+	struct ctl_conn	*c = arg;
+	uint32_t	 type;
+	pid_t		 pid;
+	int		 verbose;
 	unsigned int	 ifidx;
 
-	if ((c = control_connbyfd(fd)) == NULL) {
-		log_warn("control_dispatch_imsg: fd %d: not found", fd);
-		return;
+	c->imsgbuf->pid = pid = imsg_get_pid(imsg);
+	type = imsg_get_type(imsg);
+	switch (type) {
+	case IMSG_CTL_FIB_COUPLE:
+	case IMSG_CTL_FIB_DECOUPLE:
+		ospfe_fib_update(type);
+		/* FALLTHROUGH */
+	case IMSG_CTL_FIB_RELOAD:
+	case IMSG_CTL_RELOAD:
+		ospfe_imsg_compose_parent(type, 0, NULL, 0);
+		break;
+	case IMSG_CTL_KROUTE:
+	case IMSG_CTL_KROUTE_ADDR:
+	case IMSG_CTL_IFINFO:
+		ospfe_imsg_forward_parent(imsg);
+		break;
+	case IMSG_CTL_SHOW_INTERFACE:
+		if (imsg_get_data(imsg, &ifidx, sizeof(ifidx)) == -1)
+			break;
+
+		ospfe_iface_ctl(c, ifidx);
+		break;
+	case IMSG_CTL_SHOW_DATABASE:
+	case IMSG_CTL_SHOW_DB_EXT:
+	case IMSG_CTL_SHOW_DB_NET:
+	case IMSG_CTL_SHOW_DB_RTR:
+	case IMSG_CTL_SHOW_DB_SELF:
+	case IMSG_CTL_SHOW_DB_SUM:
+	case IMSG_CTL_SHOW_DB_ASBR:
+	case IMSG_CTL_SHOW_DB_OPAQ:
+	case IMSG_CTL_SHOW_RIB:
+	case IMSG_CTL_SHOW_SUM:
+		ospfe_imsg_forward_rde(imsg);
+		break;
+	case IMSG_CTL_SHOW_NBR:
+		ospfe_nbr_ctl(c);
+		break;
+	case IMSG_CTL_LOG_VERBOSE:
+		if (imsg_get_data(imsg, &verbose, sizeof(verbose)) == -1)
+			break;
+
+		/* forward to other processes */
+		ospfe_imsg_forward_parent(imsg);
+		ospfe_imsg_forward_rde(imsg);
+		log_setverbose(verbose);
+		break;
+	default:
+		log_debug("control_dispatch_imsg: "
+		    "error handling imsg %d", type);
+		break;
 	}
+}
 
-	if (event & EV_READ) {
-		if (imsgbuf_read(c->imsgbuf) != 1) {
-			control_close(fd);
-			return;
-		}
-	}
-	if (event & EV_WRITE) {
-		if (imsgbuf_write(c->imsgbuf) == -1) {
-			control_close(fd);
-			return;
-		}
-	}
+void
+control_dispatch_error(struct imsgbuf *ibuf, void *arg, short event, int error)
+{
+	struct ctl_conn	*c = arg;
 
-	for (;;) {
-		if ((n = imsgbuf_get(c->imsgbuf, &imsg)) == -1) {
-			control_close(fd);
-			return;
-		}
-
-		if (n == 0)
-			break;
-
-		c->imsgbuf->pid = imsg.hdr.pid;
-		switch (imsg.hdr.type) {
-		case IMSG_CTL_FIB_COUPLE:
-		case IMSG_CTL_FIB_DECOUPLE:
-			ospfe_fib_update(imsg.hdr.type);
-			/* FALLTHROUGH */
-		case IMSG_CTL_FIB_RELOAD:
-		case IMSG_CTL_RELOAD:
-			ospfe_imsg_compose_parent(imsg.hdr.type, 0, NULL, 0);
-			break;
-		case IMSG_CTL_KROUTE:
-		case IMSG_CTL_KROUTE_ADDR:
-		case IMSG_CTL_IFINFO:
-			ospfe_imsg_compose_parent(imsg.hdr.type, imsg.hdr.pid,
-			    imsg.data, imsg.hdr.len - IMSG_HEADER_SIZE);
-			break;
-		case IMSG_CTL_SHOW_INTERFACE:
-			if (imsg.hdr.len == IMSG_HEADER_SIZE +
-			    sizeof(ifidx)) {
-				memcpy(&ifidx, imsg.data, sizeof(ifidx));
-				ospfe_iface_ctl(c, ifidx);
-				imsg_compose(c->imsgbuf, IMSG_CTL_END, 0,
-				    0, -1, NULL, 0);
-			}
-			break;
-		case IMSG_CTL_SHOW_DATABASE:
-		case IMSG_CTL_SHOW_DB_EXT:
-		case IMSG_CTL_SHOW_DB_NET:
-		case IMSG_CTL_SHOW_DB_RTR:
-		case IMSG_CTL_SHOW_DB_SELF:
-		case IMSG_CTL_SHOW_DB_SUM:
-		case IMSG_CTL_SHOW_DB_ASBR:
-		case IMSG_CTL_SHOW_DB_OPAQ:
-		case IMSG_CTL_SHOW_RIB:
-		case IMSG_CTL_SHOW_SUM:
-			ospfe_imsg_compose_rde(imsg.hdr.type, 0, imsg.hdr.pid,
-			    imsg.data, imsg.hdr.len - IMSG_HEADER_SIZE);
-			break;
-		case IMSG_CTL_SHOW_NBR:
-			ospfe_nbr_ctl(c);
-			break;
-		case IMSG_CTL_LOG_VERBOSE:
-			if (imsg.hdr.len != IMSG_HEADER_SIZE +
-			    sizeof(verbose))
-				break;
-
-			/* forward to other processes */
-			ospfe_imsg_compose_parent(imsg.hdr.type, imsg.hdr.pid,
-			    imsg.data, imsg.hdr.len - IMSG_HEADER_SIZE);
-			ospfe_imsg_compose_rde(imsg.hdr.type, 0, imsg.hdr.pid,
-			    imsg.data, imsg.hdr.len - IMSG_HEADER_SIZE);
-
-			memcpy(&verbose, imsg.data, sizeof(verbose));
-			log_setverbose(verbose);
-			break;
-		default:
-			log_debug("control_dispatch_imsg: "
-			    "error handling imsg %d", imsg.hdr.type);
-			break;
-		}
-		imsg_free(&imsg);
-	}
-
-	imsg_event_add(c->imsgbuf, imsgbuf_get_userdata(c->imsgbuf));
+	/* silently discard session, ospfctl will complain to user */
+	control_close(c);
 }
 
 int
@@ -340,9 +306,8 @@ control_imsg_relay(struct imsg *imsg)
 {
 	struct ctl_conn	*c;
 
-	if ((c = control_connbypid(imsg->hdr.pid)) == NULL)
+	if ((c = control_connbypid(imsg_get_pid(imsg))) == NULL)
 		return (0);
 
-	return (imsg_compose(c->imsgbuf, imsg->hdr.type, 0, imsg->hdr.pid,
-	    -1, imsg->data, imsg->hdr.len - IMSG_HEADER_SIZE));
+	return (imsg_forward(c->imsgbuf, imsg));
 }
