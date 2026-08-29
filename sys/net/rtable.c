@@ -41,44 +41,6 @@
  */
 int rt_tableid_max = 255;
 
-/*
- * Routing table lookup structure. rtables are immortal once created.
- *
- *	I	immutable after creation
- *	K	kernel lock
- *	N	net lock
- *	S	SMR pointer
- *	X	only adjusted when table is empty and no longer unused
- */
-struct rtidx {
-	struct rwlock	 r_lock;
-	struct art	*r_art;		/* [I] routing table */
-	struct sockaddr *r_source;	/* [N] use optional src addr */
-	unsigned int	 r_off;		/* [I] Offset of key in bytes */
-};
-
-struct rtable {
-	unsigned int		 rt_rdomain;	/* [X] */
-	unsigned int		 rt_loifidx;	/* [X] */
-	struct ip_mrouter	*rt_mrouter;	/* [S] */
-	struct ip6_mrouter	*rt_mrouter6;	/* [S] */
-
-	struct rtidx		 rt_idx[0];	/* af2idx_max entries */
-};
-
-/*
- * Array of rtable pointers.  The limit lives inside the allocation so
- * that a reader loads one SMR pointer and gets the bound and the array
- * it guards from the same object, as if_idxmap does for if_map.
- */
-struct rtable_map {
-	unsigned int	  m_limit;
-	struct rtable	 *m_tbl[0];	/* [S] m_limit entries */
-};
-
-#define RTABLE_MAP_SIZE(n)						\
-	(sizeof(struct rtable_map) + (n) * sizeof(struct rtable *))
-
 struct rtable_map *rtables;		/* [S] write side: rtable_lock */
 size_t		  rtable_size;		/* [I] size of rtable entry */
 struct rwlock	  rtable_lock = RWLOCK_INITIALIZER("rtable");
