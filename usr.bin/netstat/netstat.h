@@ -133,7 +133,7 @@ char	*routename4(in_addr_t);
 char	*netname(struct sockaddr *, struct sockaddr *);
 char	*netname4(in_addr_t, in_addr_t);
 char	*mpls_op(u_int32_t);
-void	routepr(u_long, u_long, u_long, u_int);
+void	routepr(u_long, u_long, u_int);
 
 #define	IF_SHOW_FAIL	0
 #define	IF_SHOW_ERRS	1
