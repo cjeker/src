@@ -37,6 +37,7 @@ int		 rtable_satoplen(sa_family_t, const struct sockaddr *);
 
 void		 rtable_init(void);
 int		 rtable_exists(unsigned int);
+unsigned int	 rtable_limit(void);
 int		 rtable_empty(unsigned int);
 int		 rtable_add(unsigned int);
 unsigned int	 rtable_l2(unsigned int);

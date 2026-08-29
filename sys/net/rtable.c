@@ -66,8 +66,20 @@ struct rtable {
 	struct rtidx		 rt_idx[0];	/* af2idx_max entries */
 };
 
-struct rtable	**rtables;		/* [S, K] */
-unsigned int	  rtable_limit;		/* [K] needs interlock with rtables */
+/*
+ * Array of rtable pointers.  The limit lives inside the allocation so
+ * that a reader loads one SMR pointer and gets the bound and the array
+ * it guards from the same object, as if_idxmap does for if_map.
+ */
+struct rtable_map {
+	unsigned int	  m_limit;
+	struct rtable	 *m_tbl[0];	/* [S] m_limit entries */
+};
+
+#define RTABLE_MAP_SIZE(n)						\
+	(sizeof(struct rtable_map) + (n) * sizeof(struct rtable *))
+
+struct rtable_map *rtables;		/* [S] write side: rtable_lock */
 size_t		  rtable_size;		/* [I] size of rtable entry */
 struct rwlock	  rtable_lock = RWLOCK_INITIALIZER("rtable");
 
@@ -79,28 +91,53 @@ struct rtable	 *rtable_entry(unsigned int);
 struct rtidx	 *rtable_get(unsigned int, sa_family_t);
 
 /*
- * Grow the size of the array of routing tables to ``nlimit'' rounded up.
+ * One past the highest rtableid that can currently exist.  Monotonic,
+ * so a caller walking every table may read it once for the whole walk.
+ */
+unsigned int
+rtable_limit(void)
+{
+	struct rtable_map	*map;
+	unsigned int		 limit;
+
+	smr_read_enter();
+	map = SMR_PTR_GET(&rtables);
+	limit = (map == NULL) ? 0 : map->m_limit;
+	smr_read_leave();
+
+	return (limit);
+}
+
+/*
+ * Grow the array of routing tables to at least ``nlimit'' entries.
  */
 void
 rtable_grow(unsigned int nlimit)
 {
-	struct rtable	**omap, **nmap;
+	struct rtable_map	*omap, *nmap;
+	unsigned int		 olimit;
 
 	rw_assert_wrlock(&rtable_lock);
 
-	nlimit = (nlimit + 15) & ~0xf; 
+	nlimit = roundup(nlimit, 16);
 
-	KASSERT(nlimit > rtable_limit);
+	omap = SMR_PTR_GET_LOCKED(&rtables);
+	olimit = (omap == NULL) ? 0 : omap->m_limit;
 
-	omap = SMR_PTR_GET_LOCKED(&rtables),
-	nmap = mallocarray(nlimit, sizeof(*nmap), M_RTABLE, M_WAITOK|M_ZERO);
-	memcpy(nmap, omap, rtable_limit * sizeof(*omap));
-	SMR_PTR_SET_LOCKED(&rtables, nmap);
+	KASSERT(nlimit > olimit);
+
+	nmap = malloc(RTABLE_MAP_SIZE(nlimit), M_RTABLE, M_WAITOK|M_ZERO);
+	nmap->m_limit = nlimit;
 	if (omap != NULL)
+		memcpy(nmap->m_tbl, omap->m_tbl,
+		    olimit * sizeof(omap->m_tbl[0]));
+
+	SMR_PTR_SET_LOCKED(&rtables, nmap);
+
+	if (omap != NULL) {
 		smr_barrier();
-	free(omap, M_RTABLE, rtable_limit * sizeof(*omap));
-	membar_producer();	/* XXX */
-	rtable_limit = nlimit;
+		free(omap, M_RTABLE, RTABLE_MAP_SIZE(olimit));
+	}
 }
 
 void
@@ -135,6 +172,7 @@ int
 rtable_add(unsigned int id)
 {
 	struct rtable		*rt = NULL;
+	struct rtable_map	*map;
 	const struct domain	*dp;
 	sa_family_t		 af;
 	unsigned int		 off, alen;
@@ -173,13 +211,16 @@ rtable_add(unsigned int id)
 	}
 
 	/* Reflect possible growth. */
-	if (id >= rtable_limit)
+	map = SMR_PTR_GET_LOCKED(&rtables);
+	if (map == NULL || id >= map->m_limit) {
 		rtable_grow(id + 1);
+		map = SMR_PTR_GET_LOCKED(&rtables);
+	}
 
 	/* Use primary rdomain by default. */
 	rt->rt_rdomain = 0;
 
-	SMR_PTR_SET_LOCKED(&rtables[id], rt);
+	SMR_PTR_SET_LOCKED(&map->m_tbl[id], rt);
 	rt = NULL;
 out:
 	rw_exit_write(&rtable_lock);
@@ -198,14 +239,13 @@ out:
 struct rtable *
 rtable_entry(unsigned int rtableid)
 {
-	struct rtable **r;
+	struct rtable_map *map;
 
-	if (rtableid >= USHRT_MAX)
+	map = SMR_PTR_GET(&rtables);
+	if (map == NULL || rtableid >= map->m_limit)
 		return (NULL);
-	if (rtableid >= READ_ONCE(rtable_limit))
-		return (NULL);
-	r = SMR_PTR_GET(&rtables);
-	return SMR_PTR_GET(&r[rtableid]);
+
+	return (SMR_PTR_GET(&map->m_tbl[rtableid]));
 }
 
 /*
