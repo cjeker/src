@@ -241,6 +241,8 @@ rtable_entry(unsigned int rtableid)
 {
 	struct rtable_map *map;
 
+	SMR_ASSERT_CRITICAL();
+
 	map = SMR_PTR_GET(&rtables);
 	if (map == NULL || rtableid >= map->m_limit)
 		return (NULL);
@@ -336,7 +338,7 @@ rtable_get_mrouter(unsigned int rtableid)
 
 	if ((rt = rtable_entry(rtableid)) == NULL)
 		return (NULL);
-	return (rt->rt_mrouter);
+	return (SMR_PTR_GET(&rt->rt_mrouter));
 }
 
 struct ip6_mrouter *
@@ -348,7 +350,7 @@ rtable_get_mrouter6(unsigned int rtableid)
 
 	if ((rt = rtable_entry(rtableid)) == NULL)
 		return (NULL);
-	return (rt->rt_mrouter6);
+	return (SMR_PTR_GET(&rt->rt_mrouter6));
 }
 
 struct ip_mrouter *
@@ -357,8 +359,12 @@ rtable_set_mrouter(unsigned int rtableid, struct ip_mrouter *new)
 	struct ip_mrouter *old;
 	struct rtable *rt;
 
-	if ((rt = rtable_entry(rtableid)) == NULL)
+	smr_read_enter();
+	rt = rtable_entry(rtableid);
+	smr_read_leave();
+	if (rt == NULL)
 		return (NULL);
+
 	old = SMR_PTR_GET_LOCKED(&rt->rt_mrouter);
 	SMR_PTR_SET_LOCKED(&rt->rt_mrouter, new);
 
@@ -371,8 +377,12 @@ rtable_set_mrouter6(unsigned int rtableid, struct ip6_mrouter *new)
 	struct ip6_mrouter *old;
 	struct rtable *rt;
 
-	if ((rt = rtable_entry(rtableid)) == NULL)
+	smr_read_enter();
+	rt = rtable_entry(rtableid);
+	smr_read_leave();
+	if (rt == NULL)
 		return (NULL);
+
 	old = SMR_PTR_GET_LOCKED(&rt->rt_mrouter6);
 	SMR_PTR_SET_LOCKED(&rt->rt_mrouter6, new);
 
@@ -397,7 +407,10 @@ rtable_l2set(unsigned int rtableid, unsigned int rdomain, unsigned int loifidx)
 			panic("bad loopback ifp for rdomain %d", rdomain);
 		if_put(loifp);
 	}
-	if ((rt = rtable_entry(rtableid)) == NULL)
+	smr_read_enter();
+	rt = rtable_entry(rtableid);
+	smr_read_leave();
+	if (rt == NULL)
 		return;
 
 	rt->rt_rdomain = rdomain;
