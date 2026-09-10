@@ -30,8 +30,6 @@
 #include <sys/smr.h>
 #endif
 
-#include <net/if.h>
-#include <net/if_var.h>
 #include <net/rtable.h>
 #include <net/route.h>
 #include <net/art.h>
@@ -355,20 +353,16 @@ void
 rtable_l2set(unsigned int rtableid, unsigned int rdomain, unsigned int loifidx)
 {
 	struct rtable *rt;
-	struct ifnet *loifp;
 
 	KERNEL_ASSERT_LOCKED();
 
-	if ((rt = rtable_entry(rdomain)) == NULL)
+	if (!rtable_exists(rdomain))
 		panic("rdomain %d does not exist", rdomain);
-	if (rtableid != rdomain && rt->rt_rdomain != rdomain)
+	if (rtableid != rdomain && rtable_l2(rdomain) != rdomain)
 		panic("routing table %d isn't a rdomain", rdomain);
-	if (loifidx != 0) {
-		loifp = if_get(loifidx);
-		if (loifp == NULL || loifp->if_rdomain != rdomain)
-			panic("bad loopback ifp for rdomain %d", rdomain);
-		if_put(loifp);
-	}
+	if (!rtable_empty(rtableid))
+		panic("rtable %d is not empty", rtableid);
+
 	smr_read_enter();
 	rt = rtable_entry(rtableid);
 	smr_read_leave();
